@@ -1,0 +1,35 @@
+root : command+
+
+command : "config" ID+ LINEEND+ command_contents* END
+
+command_contents : subcommand
+                 | set_line
+                 | unset_line
+                 | edit_line
+                 | NEXT
+
+subcommand : command
+
+
+
+ID : (ESCAPED_STRING|WORD|"*"+)
+
+set_line : "set" ID+ LINEEND+
+unset_line : "unset" ID+ LINEEND+
+edit_line: "edit" ID LINEEND+
+
+WORD : /[\w\-\.:\/]+/
+NEXT : "next" LINEEND+
+COMMENT : /#.*/ LINEEND+
+END : "end" LINEEND+
+LINEEND : WS_INLINE* NEWLINE
+ESCAPED_STRING : /"(.|\n)*?"/ | /'(.|\n)*?'/
+
+
+%import common.WS_INLINE
+//%import common.WORD
+//%import common.ESCAPED_STRING
+%import common.NEWLINE
+
+%ignore WS_INLINE
+%ignore COMMENT
