@@ -17,5 +17,5 @@ parser = Lark(grammar,
               debug=True)
 
 parsed_conf = parser.parse(conf)
-print(parsed_conf)
+print(parsed_conf.pretty())
 

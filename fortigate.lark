@@ -2,13 +2,13 @@ root : command+
 
 command : "config" ID+ LINEEND+ command_contents* END
 
-command_contents : subcommand
+?command_contents : subcommand
                  | set_line
                  | unset_line
                  | edit_line
                  | NEXT
 
-subcommand : command
+?subcommand : command
 
 
 
