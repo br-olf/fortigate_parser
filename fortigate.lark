@@ -1,25 +1,32 @@
 root : command+
 
-command : "config" ID+ LINEEND+ command_contents* END
+command : "config" config_branch subcommand* END
 
-?command_contents : subcommand
-                 | set_line
-                 | unset_line
-                 | edit_line
-                 | NEXT
+?subcommand : config_subcommand
+                 | field_subcommand_set
+                 | field_subcommand_unset
+                 | table_subcommand_edit
+                 | field_subcommand_next
 
-?subcommand : command
+?config_subcommand : command
 
+config_branch : CONFIG_BRANCH_SPECIFIER+ LINEEND+
+CONFIG_BRANCH_SPECIFIER: ID
 
+//COMMAND_SELECTOR: ID [WS_INLINE+ ID] LINEEND+
 
 ID : (ESCAPED_STRING|WORD|"*"+)
 
-set_line : "set" ID+ LINEEND+
-unset_line : "unset" ID+ LINEEND+
-edit_line: "edit" ID LINEEND+
+FIELD: ID
+VALUE: (ID|WS_INLINE)+
+TABLE: ID
+
+field_subcommand_next: "next" LINEEND+
+field_subcommand_set : "set" FIELD VALUE LINEEND+
+field_subcommand_unset : "unset" FIELD LINEEND+
+table_subcommand_edit: "edit" TABLE LINEEND+
 
 WORD : /[\w\-\.:\/]+/
-NEXT : "next" LINEEND+
 COMMENT : /#.*/ LINEEND+
 END : "end" LINEEND+
 LINEEND : WS_INLINE* NEWLINE
