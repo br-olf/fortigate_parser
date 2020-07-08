@@ -1,42 +1,41 @@
-root : command+
+root : config+
 
-command : "config" config_branch subcommand* END
+?config : "config" config_branch subcommand* "end" _LINEEND+
 
-?subcommand : config_subcommand
-                 | field_subcommand_set
-                 | field_subcommand_unset
-                 | table_subcommand_edit
-                 | field_subcommand_next
+?subcommand : subcommand_config
+            | subcommand_field_set
+            | subcommand_field_unset
+            | subcommand_table_edit
+            | subcommand_field_next
 
-?config_subcommand : command
+subcommand_config : config
 
-config_branch : CONFIG_BRANCH_SPECIFIER+ LINEEND+
-CONFIG_BRANCH_SPECIFIER: ID
+config_branch : _config_branch_specifier _LINEEND+
+_config_branch_specifier: NAME+ [ESCAPED_STRING]
 
-//COMMAND_SELECTOR: ID [WS_INLINE+ ID] LINEEND+
 
-ID : (ESCAPED_STRING|WORD|"*"+)
 
-FIELD: ID
-VALUE: (ID|WS_INLINE)+
-TABLE: ID
+FIELD: NAME
+VALUE_CONTENT: (CONCATENATED_PRINTABLE|ESCAPED_STRING)
+TABLE: (INT|ESCAPED_STRING)
 
-field_subcommand_next: "next" LINEEND+
-field_subcommand_set : "set" FIELD VALUE LINEEND+
-field_subcommand_unset : "unset" FIELD LINEEND+
-table_subcommand_edit: "edit" TABLE LINEEND+
+subcommand_field_next: "next" _LINEEND+
+subcommand_field_set : "set" FIELD value _LINEEND+
+subcommand_field_unset : "unset" FIELD _LINEEND+
+subcommand_table_edit: "edit" TABLE _LINEEND+
 
-WORD : /[\w\-\.:\/]+/
-COMMENT : /#.*/ LINEEND+
-END : "end" LINEEND+
-LINEEND : WS_INLINE* NEWLINE
+value : VALUE_CONTENT+
+
+NAME: /[\w\-]+/
+CONCATENATED_PRINTABLE : /[\w\-\.:\/\*]+/
+COMMENT : /#.*/ _LINEEND+
+_LINEEND : WS_INLINE* NEWLINE
 ESCAPED_STRING : /"(.|\n)*?"/ | /'(.|\n)*?'/
 
 
 %import common.WS_INLINE
-//%import common.WORD
-//%import common.ESCAPED_STRING
 %import common.NEWLINE
+%import common.INT
 
 %ignore WS_INLINE
 %ignore COMMENT
