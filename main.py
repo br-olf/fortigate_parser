@@ -17,5 +17,19 @@ parser = Lark(grammar,
               debug=True)
 
 parsed_conf = parser.parse(conf)
-print(parsed_conf.pretty())
+#print(parsed_conf.pretty())
 
+"""Extract config sections"""
+for config in parsed_conf.children:
+    if config.data == 'config':
+        config_branch = config.children[0].children
+    elif config.data == 'config_branch':
+        config_branch = config.children
+    else:
+        raise RuntimeError('invalid parse tree')
+
+    if config_branch[0] == 'firewall':
+        if config_branch[1] == 'address':
+            firewall_address = config.children
+        elif config_branch[1] == 'policy':
+            firewall_policy = config
