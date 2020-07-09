@@ -6,7 +6,6 @@ root : config+
             | subcommand_field_set
             | subcommand_field_unset
             | subcommand_table_edit
-            | subcommand_field_next
 
 subcommand_config : config
 
@@ -19,10 +18,11 @@ FIELD: NAME
 VALUE_CONTENT: (CONCATENATED_PRINTABLE|ESCAPED_STRING)
 TABLE: (INT|ESCAPED_STRING)
 
-subcommand_field_next: "next" _LINEEND+
 subcommand_field_set : "set" FIELD value _LINEEND+
 subcommand_field_unset : "unset" FIELD _LINEEND+
-subcommand_table_edit: "edit" TABLE _LINEEND+
+subcommand_table_edit: "edit" TABLE _LINEEND+ subcommand* "next" _LINEEND+
+
+
 
 value : VALUE_CONTENT+
 
