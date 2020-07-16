@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from lark import Lark
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
 with open("fortigate.lark", "r") as f:
     grammar = f.read()
@@ -21,10 +21,12 @@ parser = Lark(grammar,
 
 parsed_conf = parser.parse(conf)
 del conf
-# print(parsed_conf.pretty())
 
-"""Extract firewall config sections"""
-firewall = {}
+#######################################################################################
+# Extract relevant configuration pieces
+#######################################################################################
+firewall_raw = {}
+system_raw = {}
 for config in parsed_conf.children:
     if config.data == 'config':
         config_branch = config.children[0].children
@@ -33,47 +35,54 @@ for config in parsed_conf.children:
     else:
         raise RuntimeError('invalid parse tree')
 
+    if config_branch[0] == 'system':
+        if config_branch[1] == 'dhcp':
+            if 'dhcp' not in firewall_raw.keys():
+                system_raw['dhcp'] = config.children
+            else:
+                logging.error('config "system dhcp" should only be present once')
+
     if config_branch[0] == 'firewall':
         if config_branch[1] == 'address':
-            if 'address' not in firewall.keys():
-                firewall['address'] = config.children
+            if 'address' not in firewall_raw.keys():
+                firewall_raw['address'] = config.children
             else:
-                print('ERROR: config "firewall address" should only be present once')
+                logging.error('config "firewall address" should only be present once')
         elif config_branch[1] == 'policy':
-            if 'policy' not in firewall.keys():
-                firewall['policy'] = config.children
+            if 'policy' not in firewall_raw.keys():
+                firewall_raw['policy'] = config.children
             else:
-                print('ERROR: config "firewall policy" should only be present once')
+                logging.error('config "firewall policy" should only be present once')
         elif config_branch[1] == 'acl':
-            if 'acl' not in firewall.keys():
-                firewall['acl'] = config.children
+            if 'acl' not in firewall_raw.keys():
+                firewall_raw['acl'] = config.children
             else:
-                print('ERROR: config "firewall acl" should only be present once')
+                logging.error('config "firewall acl" should only be present once')
         elif config_branch[1] == 'addrgrp':
-            if 'addrgrp' not in firewall.keys():
-                firewall['addrgrp'] = config.children
+            if 'addrgrp' not in firewall_raw.keys():
+                firewall_raw['addrgrp'] = config.children
             else:
-                print('ERROR: config "firewall addrgrp" should only be present once')
+                logging.error('config "firewall addrgrp" should only be present once')
         elif config_branch[1] == 'ippool':
-            if 'ippool' not in firewall.keys():
-                firewall['ippool'] = config.children
+            if 'ippool' not in firewall_raw.keys():
+                firewall_raw['ippool'] = config.children
             else:
-                print('ERROR: config "firewall ippool" should only be present once')
+                logging.error('config "firewall ippool" should only be present once')
         elif config_branch[1] == 'service' and config_branch[2] == 'category':
-            if 'service_category' not in firewall.keys():
-                firewall['service_category'] = config.children
+            if 'service_category' not in firewall_raw.keys():
+                firewall_raw['service_category'] = config.children
             else:
-                print('ERROR: config "firewall service category" should only be present once')
+                logging.error('config "firewall service category" should only be present once')
         elif config_branch[1] == 'service' and config_branch[2] == 'group':
-            if 'service_group' not in firewall.keys():
-                firewall['service_group'] = config.children
+            if 'service_group' not in firewall_raw.keys():
+                firewall_raw['service_group'] = config.children
             else:
-                print('ERROR: config "firewall service category" should only be present once')
+                logging.error('config "firewall service category" should only be present once')
         elif config_branch[1] == 'service' and config_branch[2] == 'custom':
-            if 'service_custom' not in firewall.keys():
-                firewall['service_custom'] = config.children
+            if 'service_custom' not in firewall_raw.keys():
+                firewall_raw['service_custom'] = config.children
             else:
-                print('ERROR: config "firewall service custom" should only be present once')
+                logging.error('config "firewall service custom" should only be present once')
 
 
 #######################################################################################
@@ -88,7 +97,7 @@ class FwNetAlias:
 
 fw_address = []
 
-for entry in firewall['address'][1:]:
+for entry in firewall_raw['address'][1:]:
     name = str(entry.children[0])
     ip = []
     ip_s = None
@@ -116,14 +125,11 @@ for entry in firewall['address'][1:]:
                     raise RuntimeError("\"end-ip\" without \"start-ip\"")
             else:
                 if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
-                    print('WARNING: NOT EVALUATED: config firewall address:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:', entry)
+                    logging.warning(' '.join(['NOT EVALUATED: config firewall address:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
         else:
             raise RuntimeError("Expected 'set' command!")
     if not ip:
-        print(
-            "WARNING: Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip'",
-            entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:", str(entry)]))
         continue
     fw_address.append(FwNetAlias(str(name), str(comment), ip))
 
@@ -144,7 +150,7 @@ class FwNetAliasGroup:
 
 fw_address_grop = []
 
-for entry in firewall['addrgrp'][1:]:
+for entry in firewall_raw['addrgrp'][1:]:
     name = str(entry.children[0])
     address_keys = []
     for cmd in entry.children[1:]:
@@ -156,8 +162,8 @@ for entry in firewall['addrgrp'][1:]:
                     address_keys.append(str(addr_key))
             else:
                 if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
-                    print('WARNING: NOT EVALUATED: config firewall addrgrp:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:', entry)
+                    logging.warning(' '.join(['NOT EVALUATED: config firewall addrgrp:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
+                          '\n  CONTEXT:', str(entry)]))
         else:
             raise RuntimeError("Expected 'set' command!")
     if not address_keys:
@@ -174,7 +180,7 @@ class FwIPAlias:
 
 fw_ippool = []  # used for NAT/PAT
 
-for entry in firewall['ippool'][1:]:
+for entry in firewall_raw['ippool'][1:]:
     name = str(entry.children[0])
     ip = None
     ip_s = None
@@ -197,8 +203,8 @@ for entry in firewall['ippool'][1:]:
                     raise RuntimeError("\"endip\" without \"startip\"")
             else:
                 if cmd.children[0] != 'TODO':
-                    print('WARNING: NOT EVALUATED: config firewall ippool:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:', entry)
+                    logging.warning(' '.join(['NOT EVALUATED: config firewall ippool:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
+                          '\n  CONTEXT:', str(entry)]))
         else:
             raise RuntimeError("Expected 'set' command!")
     if ip is None:
@@ -228,7 +234,7 @@ class FwPolicy:
 
 fw_policy = []
 
-for entry in firewall['policy'][1:]:
+for entry in firewall_raw['policy'][1:]:
     skip = False
     src_interface = None
     dst_interface = None
@@ -358,32 +364,32 @@ for entry in firewall['policy'][1:]:
             else:
                 if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
                         and cmd.children[0] != 'logtraffic-start':
-                    print('WARNING: NOT EVALUATED: config firewall policy:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:', entry)
+                    logging.warning(' '.join(['NOT EVALUATED: config firewall policy:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
+                          '\n  CONTEXT:', str(entry)]))
         else:
             raise RuntimeError("Expected 'set' command!")
     if skip:
         continue
     if src_interface is None:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:", str(entry)]))
         continue
     elif dst_interface is None:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:", str(entry)]))
         continue
     elif action is None:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'action':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:", str(entry)]))
         continue
     elif not src_alias_list:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr'", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:", str(entry)]))
         continue
     elif not dst_alias_list:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:", str(entry)]))
         continue
     elif not service:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'service':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:", str(entry)]))
         continue
     elif label is None:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':", entry)
+        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:", str(entry)]))
         continue
     fw_policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
                               action, service, log_traffic, comment, label, nat, session_ttl,
@@ -398,17 +404,17 @@ class FwServiceCategroy:
 
 
 fw_service_category = []
-
-for entry in firewall['service_category'][1:]:
-    name = str(entry.children[0])
-    if len(entry.children[1:]) != 1:
-        raise RuntimeError('Unexpected number of commands')
-    if entry.children[1].data != 'subcommand_field_set':
-        raise RuntimeError('Unexpected type of command')
-    if entry.children[1].children[0] != 'comment':
-        raise RuntimeError('Unexpected set target')
-    comment = entry.children[1].children[1].children[0]
-    fw_service_category.append(FwServiceCategroy(str(name), str(comment), []))
+if 'service_category' in firewall_raw.keys():
+    for entry in firewall_raw['service_category'][1:]:
+        name = str(entry.children[0])
+        if len(entry.children[1:]) != 1:
+            raise RuntimeError('Unexpected number of commands')
+        if entry.children[1].data != 'subcommand_field_set':
+            raise RuntimeError('Unexpected type of command')
+        if entry.children[1].children[0] != 'comment':
+            raise RuntimeError('Unexpected set target')
+        comment = entry.children[1].children[1].children[0]
+        fw_service_category.append(FwServiceCategroy(str(name), str(comment), []))
 
 
 @dataclass
@@ -430,92 +436,92 @@ class FwService:
 
 
 fw_service = []
-
-for entry in firewall['service_custom'][1:]:
-    skip = False
-    name = str(entry.children[0])
-    comment = None
-    category = None
-    protocol = None
-    icmp_type = None
-    tcp_range = None
-    udp_range = None
-    session_ttl = None
-    for cmd in entry.children[1:]:
-        if cmd.data == 'subcommand_field_set':
-            if cmd.children[0] == 'category':
-                if category is None:
-                    category = str(cmd.children[1].children[0])
-                    found = False
-                    for cat in fw_service_category:
-                        if cat.name == category:
-                            cat.members.append(name)
-                            found = True
+if 'service_custom' in firewall_raw.keys():
+    for entry in firewall_raw['service_custom'][1:]:
+        skip = False
+        name = str(entry.children[0])
+        comment = None
+        category = None
+        protocol = None
+        icmp_type = None
+        tcp_range = None
+        udp_range = None
+        session_ttl = None
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'category':
+                    if category is None:
+                        category = str(cmd.children[1].children[0])
+                        found = False
+                        for cat in fw_service_category:
+                            if cat.name == category:
+                                cat.members.append(name)
+                                found = True
+                                break
+                        if not found:
+                            logging.warning('category '+category+' could not be found in fw_service_category')
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'comment':
+                    if comment is None:
+                        comment = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'protocol':
+                    if protocol is None:
+                        protocol = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'icmptype':
+                    if icmp_type is None:
+                        icmp_type = int(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'session-ttl':
+                    if session_ttl is None:
+                        session_ttl = int(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'tcp-portrange':
+                    if tcp_range is None:
+                        tmp = str(cmd.children[1].children[0]).split(':')
+                        assert 0 < len(tmp) <= 2
+                        if len(tmp) == 2 and tmp[1] != '0' and tmp[1] != '0-65535':
+                            logging.error(' '.join(["Unexpected port-range; skipped 'config firewall service custom':\n  CONTEXT:", str(entry)]))
+                            skip = True
                             break
-                    if not found:
-                        print('WARNING: category '+category+' could not be found in fw_service_category')
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'comment':
-                if comment is None:
-                    comment = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'protocol':
-                if protocol is None:
-                    protocol = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'icmptype':
-                if icmp_type is None:
-                    icmp_type = int(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'session-ttl':
-                if session_ttl is None:
-                    session_ttl = int(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'tcp-portrange':
-                if tcp_range is None:
-                    tmp = str(cmd.children[1].children[0]).split(':')
-                    assert 0 < len(tmp) <= 2
-                    if len(tmp) == 2 and tmp[1] != '0' and tmp[1] != '0-65535':
-                        print("WARNING: Unexpected port-range; skipped 'config firewall service custom':", entry)
-                        skip = True
-                        break
-                    else:
-                        tmp = tmp[0].split('-')
-                        assert 0 < len(tmp) <= 2
-                        if len(tmp) == 2:
-                            tcp_range = PortRange(int(tmp[0]), int(tmp[1]))
                         else:
-                            tcp_range = PortRange(int(tmp[0]), int(tmp[0]))
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'udp-portrange':
-                if udp_range is None:
-                    tmp = str(cmd.children[1].children[0]).split(':')
-                    assert 0 < len(tmp) <= 2
-                    if len(tmp) == 2 and (tmp[1] != '0' or tmp[1] != '0-65535'):
-                        print("WARNING: Skipped unexpected 'config firewall service custom':", entry)
-                        skip = True
-                        break
+                            tmp = tmp[0].split('-')
+                            assert 0 < len(tmp) <= 2
+                            if len(tmp) == 2:
+                                tcp_range = PortRange(int(tmp[0]), int(tmp[1]))
+                            else:
+                                tcp_range = PortRange(int(tmp[0]), int(tmp[0]))
                     else:
-                        tmp = tmp[0].split('-')
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'udp-portrange':
+                    if udp_range is None:
+                        tmp = str(cmd.children[1].children[0]).split(':')
                         assert 0 < len(tmp) <= 2
-                        if len(tmp) == 2:
-                            udp_range = PortRange(int(tmp[0]), int(tmp[1]))
+                        if len(tmp) == 2 and (tmp[1] != '0' or tmp[1] != '0-65535'):
+                            logging.error(' '.join(["Skipped unexpected 'config firewall service custom':\n  CONTEXT:", str(entry)]))
+                            skip = True
+                            break
                         else:
-                            udp_range = PortRange(int(tmp[0]), int(tmp[0]))
+                            tmp = tmp[0].split('-')
+                            assert 0 < len(tmp) <= 2
+                            if len(tmp) == 2:
+                                udp_range = PortRange(int(tmp[0]), int(tmp[1]))
+                            else:
+                                udp_range = PortRange(int(tmp[0]), int(tmp[0]))
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
                 else:
-                    raise RuntimeError("Encountered conflicting set command")
-            else:
-                if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
-                    print('WARNING: NOT EVALUATED: config firewall service custom:', cmd.children[0], cmd.children[1:])
-    if skip:
-        continue
-    fw_service.append(FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
+                    if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
+                        logging.warning('NOT EVALUATED: config firewall service custom:', cmd.children[0], cmd.children[1:])
+        if skip:
+            continue
+        fw_service.append(FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
 
 @dataclass
 class FwServiceGroup:
@@ -525,25 +531,25 @@ class FwServiceGroup:
 
 
 fw_service_group = []
-
-for entry in firewall['service_group'][1:]:
-    name = str(entry.children[0])
-    comment = None
-    members = []
-    for cmd in entry.children[1:]:
-        if cmd.children[0] == 'comment':
-            if comment is None:
-                comment = str(cmd.children[1].children[0])
+if 'service_group' in firewall_raw.keys():
+    for entry in firewall_raw['service_group'][1:]:
+        name = str(entry.children[0])
+        comment = None
+        members = []
+        for cmd in entry.children[1:]:
+            if cmd.children[0] == 'comment':
+                if comment is None:
+                    comment = str(cmd.children[1].children[0])
+                else:
+                    raise RuntimeError("Encountered conflicting set command")
+            elif cmd.children[0] == 'member':
+                if not members:
+                    for val in cmd.children[1].children:
+                        members.append(str(val))
+                else:
+                    raise RuntimeError("Encountered conflicting set command")
             else:
-                raise RuntimeError("Encountered conflicting set command")
-        elif cmd.children[0] == 'member':
-            if not members:
-                for val in cmd.children[1].children:
-                    members.append(str(val))
-            else:
-                raise RuntimeError("Encountered conflicting set command")
-        else:
-            if cmd.children[0] != '':
-                print('WARNING: NOT EVALUATED: config firewall service group:', cmd.children[0], cmd.children[1:])
-    fw_service_group.append(FwServiceGroup(name, comment, members))
+                if cmd.children[0] != 'color':
+                    logging.warning(' '.join(['NOT EVALUATED: config firewall service group:', str(cmd.children[0]), str(cmd.children[1:])]))
+        fw_service_group.append(FwServiceGroup(name, comment, members))
 
