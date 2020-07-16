@@ -1,4 +1,5 @@
 import logging
+import re
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv4Address, summarize_address_range
 from typing import List, Optional
@@ -36,11 +37,11 @@ for config in parsed_conf.children:
         raise RuntimeError('invalid parse tree')
 
     if config_branch[0] == 'system':
-        if config_branch[1] == 'dhcp':
-            if 'dhcp' not in firewall_raw.keys():
-                system_raw['dhcp'] = config.children
+        if config_branch[1] == 'dhcp' and config_branch[2] == 'server':
+            if 'dhcp_server' not in firewall_raw.keys():
+                system_raw['dhcp_server'] = config.children
             else:
-                logging.error('config "system dhcp" should only be present once')
+                logging.error('config "system dhcp server" should only be present once')
 
     if config_branch[0] == 'firewall':
         if config_branch[1] == 'address':
@@ -96,43 +97,48 @@ class FwNetAlias:
 
 
 fw_address = []
-
-for entry in firewall_raw['address'][1:]:
-    name = str(entry.children[0])
-    ip = []
-    ip_s = None
-    for cmd in entry.children[1:]:
-        if cmd.data == 'subcommand_field_set':
-            if cmd.children[0] == 'subnet':
-                if len(cmd.children[1].children) == 2:
-                    # case ip + netmask
-                    ip.append(IPv4Network('/'.join(cmd.children[1].children)))
+if 'address' in firewall_raw.keys():
+    for entry in firewall_raw['address'][1:]:
+        name = str(entry.children[0])
+        ip = []
+        ip_s = None
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'subnet':
+                    if len(cmd.children[1].children) == 2:
+                        # case ip + netmask
+                        ip.append(IPv4Network('/'.join(cmd.children[1].children)))
+                    else:
+                        # case subnet
+                        ip.append(IPv4Network(cmd.children[1].children[0]))
+                elif cmd.children[0] == 'comment':
+                    comment = cmd.children[1].children[0]
+                elif cmd.children[0] == 'start-ip':
+                    if ip_s is None:
+                        ip_s = IPv4Address(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Double \"start-ip\"")
+                elif cmd.children[0] == 'end-ip':
+                    if ip_s is not None:
+                        for i in summarize_address_range(ip_s, IPv4Address(cmd.children[1].children[0])):
+                            ip.append(i)
+                    else:
+                        raise RuntimeError("\"end-ip\" without \"start-ip\"")
                 else:
-                    # case subnet
-                    ip.append(IPv4Network(cmd.children[1].children[0]))
-            elif cmd.children[0] == 'comment':
-                comment = cmd.children[1].children[0]
-            elif cmd.children[0] == 'start-ip':
-                if ip_s is None:
-                    ip_s = IPv4Address(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Double \"start-ip\"")
-            elif cmd.children[0] == 'end-ip':
-                if ip_s is not None:
-                    for i in summarize_address_range(ip_s, IPv4Address(cmd.children[1].children[0])):
-                        ip.append(i)
-                else:
-                    raise RuntimeError("\"end-ip\" without \"start-ip\"")
+                    if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
+                        logging.warning(' '.join(
+                            ['NOT EVALUATED: config firewall address:\n  option:', str(cmd.children[0]), '\n  value:',
+                             str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
-                if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
-                    logging.warning(' '.join(['NOT EVALUATED: config firewall address:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
-        else:
-            raise RuntimeError("Expected 'set' command!")
-    if not ip:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:", str(entry)]))
-        continue
-    fw_address.append(FwNetAlias(str(name), str(comment), ip))
-
+                raise RuntimeError("Expected 'set' command!")
+        if not ip:
+            logging.error(' '.join([
+                                       "Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:",
+                                       str(entry)]))
+            continue
+        fw_address.append(FwNetAlias(str(name), str(comment), ip))
+else:
+    logging.critical('Could not find critical important section \'config firewall address\'')
 
 # not used function
 def resolve_addr(key: str, fw_address_list: List[FwNetAlias]) -> List[IPv4Network]:
@@ -148,69 +154,74 @@ class FwNetAliasGroup:
     net_alias_list: List[str]
 
 
-fw_address_grop = []
-
-for entry in firewall_raw['addrgrp'][1:]:
-    name = str(entry.children[0])
-    address_keys = []
-    for cmd in entry.children[1:]:
-        if cmd.data == 'subcommand_field_set':
-            if cmd.children[0] == 'comment':
-                comment = cmd.children[1].children[0]
-            elif cmd.children[0] == 'member':
-                for addr_key in cmd.children[1].children:
-                    address_keys.append(str(addr_key))
+fw_address_group = []
+if 'addrgrp' in firewall_raw.keys():
+    for entry in firewall_raw['addrgrp'][1:]:
+        name = str(entry.children[0])
+        address_keys = []
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'comment':
+                    comment = cmd.children[1].children[0]
+                elif cmd.children[0] == 'member':
+                    for addr_key in cmd.children[1].children:
+                        address_keys.append(str(addr_key))
+                else:
+                    if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
+                        logging.warning(' '.join(
+                            ['NOT EVALUATED: config firewall addrgrp:\n  option:', str(cmd.children[0]), '\n  value:',
+                             str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
-                if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
-                    logging.warning(' '.join(['NOT EVALUATED: config firewall addrgrp:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
-                          '\n  CONTEXT:', str(entry)]))
-        else:
-            raise RuntimeError("Expected 'set' command!")
-    if not address_keys:
-        raise RuntimeError("Incompletely parsed record")
-    fw_address_grop.append(FwNetAlias(str(name), str(comment), address_keys))
+                raise RuntimeError("Expected 'set' command!")
+        if not address_keys:
+            raise RuntimeError("Incompletely parsed record")
+        fw_address_group.append(FwNetAlias(str(name), str(comment), address_keys))
+else:
+    logging.critical('Could not find critical important section \'config firewall addrgrp\'')
 
 
 @dataclass
 class FwIPAlias:
     name: str
     comment: str
-    ip: List[IPv4Address]
+    ip: IPv4Address
 
 
 fw_ippool = []  # used for NAT/PAT
-
-for entry in firewall_raw['ippool'][1:]:
-    name = str(entry.children[0])
-    ip = None
-    ip_s = None
-    for cmd in entry.children[1:]:
-        if cmd.data == 'subcommand_field_set':
-            if cmd.children[0] == 'comments':
-                comment = cmd.children[1].children[0]
-            elif cmd.children[0] == 'startip':
-                if ip_s is None:
-                    ip_s = IPv4Address(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Double \"startip\"")
-            elif cmd.children[0] == 'endip':
-                if ip_s is not None:
-                    if ip_s == IPv4Address(cmd.children[1].children[0]):
-                        ip = ip_s
+if 'ippool' in firewall_raw.keys():
+    for entry in firewall_raw['ippool'][1:]:
+        name = str(entry.children[0])
+        ip = None
+        ip_s = None
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'comments':
+                    comment = cmd.children[1].children[0]
+                elif cmd.children[0] == 'startip':
+                    if ip_s is None:
+                        ip_s = IPv4Address(cmd.children[1].children[0])
                     else:
-                        raise RuntimeError("Encountered net slide and expected single IP")
+                        raise RuntimeError("Double \"startip\"")
+                elif cmd.children[0] == 'endip':
+                    if ip_s is not None:
+                        if ip_s == IPv4Address(cmd.children[1].children[0]):
+                            ip = ip_s
+                        else:
+                            raise RuntimeError("Encountered net slide and expected single IP")
+                    else:
+                        raise RuntimeError("\"endip\" without \"startip\"")
                 else:
-                    raise RuntimeError("\"endip\" without \"startip\"")
+                    if cmd.children[0] != 'TODO':
+                        logging.warning(' '.join(
+                            ['NOT EVALUATED: config firewall ippool:\n  option:', str(cmd.children[0]), '\n  value:',
+                             str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
-                if cmd.children[0] != 'TODO':
-                    logging.warning(' '.join(['NOT EVALUATED: config firewall ippool:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
-                          '\n  CONTEXT:', str(entry)]))
-        else:
-            raise RuntimeError("Expected 'set' command!")
-    if ip is None:
-        raise RuntimeError("Incompletely parsed record")
-    fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
-
+                raise RuntimeError("Expected 'set' command!")
+        if ip is None:
+            raise RuntimeError("Incompletely parsed record")
+        fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
+else:
+    logging.warning('Could not find section \'config firewall ippool\'')
 
 @dataclass
 class FwPolicy:
@@ -233,167 +244,184 @@ class FwPolicy:
 
 
 fw_policy = []
+if 'policy' in firewall_raw.keys():
+    for entry in firewall_raw['policy'][1:]:
+        skip = False
+        src_interface = None
+        dst_interface = None
+        src_alias_list = []
+        dst_alias_list = []
+        action = None
+        service = []
+        comment = None
+        label = None
+        log_traffic = 'disable'
+        nat = False
+        session_ttl = None
+        ippool = False
+        poolname = None
+        voip_profile = None
+        utm_status = False
+        nat_ip = None
 
-for entry in firewall_raw['policy'][1:]:
-    skip = False
-    src_interface = None
-    dst_interface = None
-    src_alias_list = []
-    dst_alias_list = []
-    action = None
-    service = []
-    comment = None
-    label = None
-    log_traffic = 'disable'
-    nat = False
-    session_ttl = None
-    ippool = False
-    poolname = None
-    voip_profile = None
-    utm_status = False
-    nat_ip = None
-
-    for cmd in entry.children[1:]:
-        if cmd.data == 'subcommand_field_set':
-            if cmd.children[0] == 'status':
-                if str(cmd.children[1].children[0]) == 'disable':
-                    skip = True
-                    break
-            elif cmd.children[0] == 'comments':
-                comment = cmd.children[1].children[0]
-            elif cmd.children[0] == 'srcintf':
-                if src_interface is None:
-                    src_interface = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'dstintf':
-                if dst_interface is None:
-                    dst_interface = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'srcaddr':
-                if not src_alias_list:
-                    for alias in cmd.children[1].children:
-                        src_alias_list.append(str(alias))
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'dstaddr':
-                if not dst_alias_list:
-                    for alias in cmd.children[1].children:
-                        dst_alias_list.append(str(alias))
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'natip':
-                if nat_ip is None:
-                    if len(cmd.children[1].children) == 2:
-                        # case ip + netmask
-                        nat_ip = IPv4Network('/'.join(cmd.children[1].children))
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'status':
+                    if str(cmd.children[1].children[0]) == 'disable':
+                        skip = True
+                        break
+                elif cmd.children[0] == 'comments':
+                    comment = cmd.children[1].children[0]
+                elif cmd.children[0] == 'srcintf':
+                    if src_interface is None:
+                        src_interface = str(cmd.children[1].children[0])
                     else:
-                        # case subnet
-                        nat_ip = IPv4Network(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'action':
-                if action is None:
-                    action = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'send-deny-packet':
-                if action is None:
-                    if str(cmd.children[1].children[0]) == 'enable':
-                        action = 'deny'
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'dstintf':
+                    if dst_interface is None:
+                        dst_interface = str(cmd.children[1].children[0])
                     else:
-                        raise RuntimeError('Encountered unexpected value')
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'service':
-                if not service:
-                    for s in cmd.children[1].children:
-                        service.append(str(s))
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'global-label':
-                if label is None:
-                    label = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'logtraffic':
-                log_traffic = str(cmd.children[1].children[0])
-            elif cmd.children[0] == 'nat':
-                if nat is False:
-                    if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError(
-                            'Expected "set nat enable" got "set nat ' + str(cmd.children[1].children[0]) + '"')
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'srcaddr':
+                    if not src_alias_list:
+                        for alias in cmd.children[1].children:
+                            src_alias_list.append(str(alias))
                     else:
-                        nat = True
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'ippool':
-                if ippool is False:
-                    if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError(
-                            'Expected "set ippool enable" got "set ippool ' + str(cmd.children[1].children[0]) + '"')
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'dstaddr':
+                    if not dst_alias_list:
+                        for alias in cmd.children[1].children:
+                            dst_alias_list.append(str(alias))
                     else:
-                        ippool = True
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'utm-status':
-                if utm_status is False:
-                    if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError('Expected "set utm-status enable" got "set utm-status ' + str(
-                            cmd.children[1].children[0]) + '"')
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'natip':
+                    if nat_ip is None:
+                        if len(cmd.children[1].children) == 2:
+                            # case ip + netmask
+                            nat_ip = IPv4Network('/'.join(cmd.children[1].children))
+                        else:
+                            # case subnet
+                            nat_ip = IPv4Network(cmd.children[1].children[0])
                     else:
-                        utm_status = True
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'action':
+                    if action is None:
+                        action = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'send-deny-packet':
+                    if action is None:
+                        if str(cmd.children[1].children[0]) == 'enable':
+                            action = 'deny'
+                        else:
+                            raise RuntimeError('Encountered unexpected value')
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'service':
+                    if not service:
+                        for s in cmd.children[1].children:
+                            service.append(str(s))
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'global-label':
+                    if label is None:
+                        label = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'logtraffic':
+                    log_traffic = str(cmd.children[1].children[0])
+                elif cmd.children[0] == 'nat':
+                    if nat is False:
+                        if not str(cmd.children[1].children[0]) == 'enable':
+                            raise RuntimeError(
+                                'Expected "set nat enable" got "set nat ' + str(cmd.children[1].children[0]) + '"')
+                        else:
+                            nat = True
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'ippool':
+                    if ippool is False:
+                        if not str(cmd.children[1].children[0]) == 'enable':
+                            raise RuntimeError(
+                                'Expected "set ippool enable" got "set ippool ' + str(
+                                    cmd.children[1].children[0]) + '"')
+                        else:
+                            ippool = True
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'utm-status':
+                    if utm_status is False:
+                        if not str(cmd.children[1].children[0]) == 'enable':
+                            raise RuntimeError('Expected "set utm-status enable" got "set utm-status ' + str(
+                                cmd.children[1].children[0]) + '"')
+                        else:
+                            utm_status = True
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'poolname':
+                    if poolname is None:
+                        poolname = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'voip-profile':
+                    if voip_profile is None:
+                        voip_profile = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'session-ttl':
+                    if session_ttl is None:
+                        session_ttl = int(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
                 else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'poolname':
-                if poolname is None:
-                    poolname = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'voip-profile':
-                if voip_profile is None:
-                    voip_profile = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
-            elif cmd.children[0] == 'session-ttl':
-                if session_ttl is None:
-                    session_ttl = int(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
+                    if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
+                            and cmd.children[0] != 'logtraffic-start':
+                        logging.warning(' '.join(
+                            ['NOT EVALUATED: config firewall policy:\n  option:', str(cmd.children[0]), '\n  value:',
+                             str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
-                if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
-                        and cmd.children[0] != 'logtraffic-start':
-                    logging.warning(' '.join(['NOT EVALUATED: config firewall policy:\n  option:', str(cmd.children[0]), '\n  value:', str(cmd.children[1:]),
-                          '\n  CONTEXT:', str(entry)]))
-        else:
-            raise RuntimeError("Expected 'set' command!")
-    if skip:
-        continue
-    if src_interface is None:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:", str(entry)]))
-        continue
-    elif dst_interface is None:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:", str(entry)]))
-        continue
-    elif action is None:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:", str(entry)]))
-        continue
-    elif not src_alias_list:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:", str(entry)]))
-        continue
-    elif not dst_alias_list:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:", str(entry)]))
-        continue
-    elif not service:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:", str(entry)]))
-        continue
-    elif label is None:
-        logging.error(' '.join(["Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:", str(entry)]))
-        continue
-    fw_policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
-                              action, service, log_traffic, comment, label, nat, session_ttl,
-                              ippool, poolname, voip_profile, utm_status, nat_ip))
+                raise RuntimeError("Expected 'set' command!")
+        if skip:
+            continue
+        if src_interface is None:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        elif dst_interface is None:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        elif action is None:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:", str(entry)]))
+            continue
+        elif not src_alias_list:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        elif not dst_alias_list:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        elif not service:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        elif label is None:
+            logging.error(' '.join(
+                ["Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:",
+                 str(entry)]))
+            continue
+        fw_policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
+                                  action, service, log_traffic, comment, label, nat, session_ttl,
+                                  ippool, poolname, voip_profile, utm_status, nat_ip))
+else:
+    logging.critical('Could not find critical important section \'config firewall policy\'')
 
 
 @dataclass
@@ -415,7 +443,8 @@ if 'service_category' in firewall_raw.keys():
             raise RuntimeError('Unexpected set target')
         comment = entry.children[1].children[1].children[0]
         fw_service_category.append(FwServiceCategroy(str(name), str(comment), []))
-
+else:
+    logging.critical('Could not find critical important section \'config firewall service group\'')
 
 @dataclass
 class PortRange:
@@ -518,10 +547,14 @@ if 'service_custom' in firewall_raw.keys():
                         raise RuntimeError("Encountered conflicting set command")
                 else:
                     if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
-                        logging.warning('NOT EVALUATED: config firewall service custom:', cmd.children[0], cmd.children[1:])
+                        logging.warning('NOT EVALUATED: config firewall service custom:', cmd.children[0],
+                                        cmd.children[1:])
         if skip:
             continue
         fw_service.append(FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
+else:
+    logging.critical('Could not find critical important section \'config firewall service custom\'')
+
 
 @dataclass
 class FwServiceGroup:
@@ -550,6 +583,67 @@ if 'service_group' in firewall_raw.keys():
                     raise RuntimeError("Encountered conflicting set command")
             else:
                 if cmd.children[0] != 'color':
-                    logging.warning(' '.join(['NOT EVALUATED: config firewall service group:', str(cmd.children[0]), str(cmd.children[1:])]))
+                    logging.warning(' '.join(
+                        ['NOT EVALUATED: config firewall service group:', str(cmd.children[0]), str(cmd.children[1:])]))
         fw_service_group.append(FwServiceGroup(name, comment, members))
+else:
+    logging.critical('Could not find critical important section \'config firewall service group\'')
 
+
+@dataclass
+class DhcpServer:
+    lease_time: int
+    dns_server: List[IPv4Address]
+    domain: Optional[str]
+    gateway: Optional[IPv4Address]
+    ip_range_start: IPv4Address
+    ip_range_end: IPv4Address
+
+
+fw_dhcp_server = []
+re_dns_server = re.compile('dns-server\d+')
+if 'dhcp_server' in system_raw.keys():
+    for entry in system_raw['dhcp_server'][1:]:
+        lease_time = None
+        dns_server = []
+        domain = None
+        gateway = None
+        ip_range_start = None
+        ip_range_end = None
+        for cmd in entry.children[1:]:
+            if cmd.data == 'subcommand_field_set':
+                if cmd.children[0] == 'lease-time':
+                    lease_time = int(cmd.children[1].children[0])
+                else:
+                    if cmd.children[0] != 'TODO':
+                        logging.warning(' '.join(
+                            ['NOT EVALUATED: config system dhcp server:\n  option:', str(cmd.children[0]), '\n  value:',
+                             str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
+            elif cmd.data == 'subcommand_config':
+
+                if cmd.children[0].children[0].children[0] == 'ip-range':
+                    # Unnecessary because only one subentry expected
+                    # for sentry in cmd.children[0].children[1:]:
+                    #     for scmd in sentry.children[1:]:
+                    #         print(scmd.pretty())
+
+                    for scmd in cmd.children[0].children[1].children[1:]:
+                        if scmd.children[0] == 'start-ip':
+                            if ip_range_start is None:
+                                ip_range_start = IPv4Address(scmd.children[1].children[0])
+                            else:
+                                logging.error('Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(entry))
+                        elif scmd.children[0] == 'end-ip':
+                            if ip_range_end is None:
+                                ip_range_end = IPv4Address(scmd.children[1].children[0])
+                            else:
+                                logging.error('Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(entry))
+                else:
+                    logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
+            else:
+                raise RuntimeError("Expected 'set' command!")
+        if ip is None:
+            raise RuntimeError("Incompletely parsed record")
+        fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
+else:
+    logging.warning('Could not find section \'config system dhcp server\'')
