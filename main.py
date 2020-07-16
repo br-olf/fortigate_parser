@@ -89,7 +89,7 @@ class FwNetAlias:
 fw_address = []
 
 for entry in firewall['address'][1:]:
-    name = entry.children[0]
+    name = str(entry.children[0])
     ip = []
     ip_s = None
     for cmd in entry.children[1:]:
@@ -121,7 +121,9 @@ for entry in firewall['address'][1:]:
         else:
             raise RuntimeError("Expected 'set' command!")
     if not ip:
-        print("WARNING: Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip'", entry)
+        print(
+            "WARNING: Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip'",
+            entry)
         continue
     fw_address.append(FwNetAlias(str(name), str(comment), ip))
 
@@ -139,10 +141,11 @@ class FwNetAliasGroup:
     comment: str
     net_alias_list: List[str]
 
+
 fw_address_grop = []
 
 for entry in firewall['addrgrp'][1:]:
-    name = entry.children[0]
+    name = str(entry.children[0])
     address_keys = []
     for cmd in entry.children[1:]:
         if cmd.data == 'subcommand_field_set':
@@ -168,10 +171,11 @@ class FwIPAlias:
     comment: str
     ip: List[IPv4Address]
 
+
 fw_ippool = []  # used for NAT/PAT
 
 for entry in firewall['ippool'][1:]:
-    name = entry.children[0]
+    name = str(entry.children[0])
     ip = None
     ip_s = None
     for cmd in entry.children[1:]:
@@ -194,7 +198,7 @@ for entry in firewall['ippool'][1:]:
             else:
                 if cmd.children[0] != 'TODO':
                     print('WARNING: NOT EVALUATED: config firewall ippool:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:',entry)
+                          '\n  CONTEXT:', entry)
         else:
             raise RuntimeError("Expected 'set' command!")
     if ip is None:
@@ -218,8 +222,9 @@ class FwPolicy:
     ippool: bool
     poolname: Optional[str]
     voip_profile: Optional[str]
-    utm_status:bool
-    nat_ip:Optional[IPv4Network]
+    utm_status: bool
+    nat_ip: Optional[IPv4Network]
+
 
 fw_policy = []
 
@@ -238,9 +243,9 @@ for entry in firewall['policy'][1:]:
     session_ttl = None
     ippool = False
     poolname = None
-    voip_profile=None
-    utm_status=False
-    nat_ip=None
+    voip_profile = None
+    utm_status = False
+    nat_ip = None
 
     for cmd in entry.children[1:]:
         if cmd.data == 'subcommand_field_set':
@@ -311,7 +316,8 @@ for entry in firewall['policy'][1:]:
             elif cmd.children[0] == 'nat':
                 if nat is False:
                     if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError('Expected "set nat enable" got "set nat '+str(cmd.children[1].children[0])+'"')
+                        raise RuntimeError(
+                            'Expected "set nat enable" got "set nat ' + str(cmd.children[1].children[0]) + '"')
                     else:
                         nat = True
                 else:
@@ -319,7 +325,8 @@ for entry in firewall['policy'][1:]:
             elif cmd.children[0] == 'ippool':
                 if ippool is False:
                     if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError('Expected "set ippool enable" got "set ippool '+str(cmd.children[1].children[0])+'"')
+                        raise RuntimeError(
+                            'Expected "set ippool enable" got "set ippool ' + str(cmd.children[1].children[0]) + '"')
                     else:
                         ippool = True
                 else:
@@ -327,7 +334,8 @@ for entry in firewall['policy'][1:]:
             elif cmd.children[0] == 'utm-status':
                 if utm_status is False:
                     if not str(cmd.children[1].children[0]) == 'enable':
-                        raise RuntimeError('Expected "set utm-status enable" got "set utm-status '+str(cmd.children[1].children[0])+'"')
+                        raise RuntimeError('Expected "set utm-status enable" got "set utm-status ' + str(
+                            cmd.children[1].children[0]) + '"')
                     else:
                         utm_status = True
                 else:
@@ -351,7 +359,7 @@ for entry in firewall['policy'][1:]:
                 if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
                         and cmd.children[0] != 'logtraffic-start':
                     print('WARNING: NOT EVALUATED: config firewall policy:', cmd.children[0], cmd.children[1:],
-                          '\n  CONTEXT:',entry)
+                          '\n  CONTEXT:', entry)
         else:
             raise RuntimeError("Expected 'set' command!")
     if skip:
@@ -379,7 +387,7 @@ for entry in firewall['policy'][1:]:
         continue
     fw_policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
                               action, service, log_traffic, comment, label, nat, session_ttl,
-                              ippool,poolname,voip_profile,utm_status,nat_ip))
+                              ippool, poolname, voip_profile, utm_status, nat_ip))
 
 
 @dataclass
@@ -392,7 +400,7 @@ class FwServiceCategroy:
 fw_service_category = []
 
 for entry in firewall['service_category'][1:]:
-    name = entry.children[0]
+    name = str(entry.children[0])
     if len(entry.children[1:]) != 1:
         raise RuntimeError('Unexpected number of commands')
     if entry.children[1].data != 'subcommand_field_set':
@@ -402,10 +410,12 @@ for entry in firewall['service_category'][1:]:
     comment = entry.children[1].children[1].children[0]
     fw_service_category.append(FwServiceCategroy(str(name), str(comment), []))
 
+
 @dataclass
 class PortRange:
     start: int
     end: int
+
 
 @dataclass
 class FwService:
@@ -423,7 +433,7 @@ fw_service = []
 
 for entry in firewall['service_custom'][1:]:
     skip = False
-    name = entry.children[0]
+    name = str(entry.children[0])
     comment = None
     category = None
     protocol = None
@@ -436,6 +446,14 @@ for entry in firewall['service_custom'][1:]:
             if cmd.children[0] == 'category':
                 if category is None:
                     category = str(cmd.children[1].children[0])
+                    found = False
+                    for cat in fw_service_category:
+                        if cat.name == category:
+                            cat.members.append(name)
+                            found = True
+                            break
+                    if not found:
+                        print('WARNING: category '+category+' could not be found in fw_service_category')
                 else:
                     raise RuntimeError("Encountered conflicting set command")
             elif cmd.children[0] == 'comment':
@@ -462,17 +480,17 @@ for entry in firewall['service_custom'][1:]:
                 if tcp_range is None:
                     tmp = str(cmd.children[1].children[0]).split(':')
                     assert 0 < len(tmp) <= 2
-                    if len(tmp) == 2 and tmp[1] != '0' and tmp[1] !='0-65535':
+                    if len(tmp) == 2 and tmp[1] != '0' and tmp[1] != '0-65535':
                         print("WARNING: Unexpected port-range; skipped 'config firewall service custom':", entry)
-                        skip=True
+                        skip = True
                         break
                     else:
                         tmp = tmp[0].split('-')
                         assert 0 < len(tmp) <= 2
                         if len(tmp) == 2:
-                            tcp_range=PortRange(int(tmp[0]),int(tmp[1]))
+                            tcp_range = PortRange(int(tmp[0]), int(tmp[1]))
                         else:
-                            tcp_range=PortRange(int(tmp[0]),int(tmp[0]))
+                            tcp_range = PortRange(int(tmp[0]), int(tmp[0]))
                 else:
                     raise RuntimeError("Encountered conflicting set command")
             elif cmd.children[0] == 'udp-portrange':
@@ -494,11 +512,38 @@ for entry in firewall['service_custom'][1:]:
                     raise RuntimeError("Encountered conflicting set command")
             else:
                 if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
-                    print('NOT EVALUATED:', cmd.children[0], cmd.children[1:])
+                    print('WARNING: NOT EVALUATED: config firewall service custom:', cmd.children[0], cmd.children[1:])
     if skip:
         continue
-    fw_service.append(FwService(name,comment,category,protocol,icmp_type,tcp_range,udp_range,session_ttl))
+    fw_service.append(FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
 
-# TODO:
-#  'config firewall service group'
+@dataclass
+class FwServiceGroup:
+    name: str
+    comment: Optional[str]
+    members: List[str]
+
+
+fw_service_group = []
+
+for entry in firewall['service_group'][1:]:
+    name = str(entry.children[0])
+    comment = None
+    members = []
+    for cmd in entry.children[1:]:
+        if cmd.children[0] == 'comment':
+            if comment is None:
+                comment = str(cmd.children[1].children[0])
+            else:
+                raise RuntimeError("Encountered conflicting set command")
+        elif cmd.children[0] == 'member':
+            if not members:
+                for val in cmd.children[1].children:
+                    members.append(str(val))
+            else:
+                raise RuntimeError("Encountered conflicting set command")
+        else:
+            if cmd.children[0] != '':
+                print('WARNING: NOT EVALUATED: config firewall service group:', cmd.children[0], cmd.children[1:])
+    fw_service_group.append(FwServiceGroup(name, comment, members))
 
