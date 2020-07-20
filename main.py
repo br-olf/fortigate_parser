@@ -102,6 +102,7 @@ if 'address' in firewall_raw.keys():
         name = str(entry.children[0])
         ip = []
         ip_s = None
+        comment = ''
         for cmd in entry.children[1:]:
             if cmd.data == 'subcommand_field_set':
                 if cmd.children[0] == 'subnet':
@@ -133,18 +134,12 @@ if 'address' in firewall_raw.keys():
                 raise RuntimeError("Expected 'set' command!")
         if not ip:
             logging.error(' '.join([
-                                       "Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:",
-                                       str(entry)]))
+                "Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:",
+                str(entry)]))
             continue
         fw_address.append(FwNetAlias(str(name), str(comment), ip))
 else:
     logging.critical('Could not find critical important section \'config firewall address\'')
-
-# not used function
-def resolve_addr(key: str, fw_address_list: List[FwNetAlias]) -> List[IPv4Network]:
-    for addr in fw_address_list:
-        if str(key) == str(addr.key):
-            return addr.addresses
 
 
 @dataclass
@@ -159,6 +154,7 @@ if 'addrgrp' in firewall_raw.keys():
     for entry in firewall_raw['addrgrp'][1:]:
         name = str(entry.children[0])
         address_keys = []
+        comment = ''
         for cmd in entry.children[1:]:
             if cmd.data == 'subcommand_field_set':
                 if cmd.children[0] == 'comment':
@@ -175,7 +171,7 @@ if 'addrgrp' in firewall_raw.keys():
                 raise RuntimeError("Expected 'set' command!")
         if not address_keys:
             raise RuntimeError("Incompletely parsed record")
-        fw_address_group.append(FwNetAlias(str(name), str(comment), address_keys))
+        fw_address_group.append(FwNetAliasGroup(str(name), str(comment), address_keys))
 else:
     logging.critical('Could not find critical important section \'config firewall addrgrp\'')
 
@@ -193,6 +189,7 @@ if 'ippool' in firewall_raw.keys():
         name = str(entry.children[0])
         ip = None
         ip_s = None
+        comment = ''
         for cmd in entry.children[1:]:
             if cmd.data == 'subcommand_field_set':
                 if cmd.children[0] == 'comments':
@@ -222,6 +219,7 @@ if 'ippool' in firewall_raw.keys():
         fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
 else:
     logging.warning('Could not find section \'config firewall ippool\'')
+
 
 @dataclass
 class FwPolicy:
@@ -446,6 +444,7 @@ if 'service_category' in firewall_raw.keys():
 else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
 
+
 @dataclass
 class PortRange:
     start: int
@@ -488,7 +487,7 @@ if 'service_custom' in firewall_raw.keys():
                                 found = True
                                 break
                         if not found:
-                            logging.warning('category '+category+' could not be found in fw_service_category')
+                            logging.warning('category ' + category + ' could not be found in fw_service_category')
                     else:
                         raise RuntimeError("Encountered conflicting set command")
                 elif cmd.children[0] == 'comment':
@@ -516,7 +515,9 @@ if 'service_custom' in firewall_raw.keys():
                         tmp = str(cmd.children[1].children[0]).split(':')
                         assert 0 < len(tmp) <= 2
                         if len(tmp) == 2 and tmp[1] != '0' and tmp[1] != '0-65535':
-                            logging.error(' '.join(["Unexpected port-range; skipped 'config firewall service custom':\n  CONTEXT:", str(entry)]))
+                            logging.error(' '.join(
+                                ["Unexpected port-range; skipped 'config firewall service custom':\n  CONTEXT:",
+                                 str(entry)]))
                             skip = True
                             break
                         else:
@@ -533,7 +534,8 @@ if 'service_custom' in firewall_raw.keys():
                         tmp = str(cmd.children[1].children[0]).split(':')
                         assert 0 < len(tmp) <= 2
                         if len(tmp) == 2 and (tmp[1] != '0' or tmp[1] != '0-65535'):
-                            logging.error(' '.join(["Skipped unexpected 'config firewall service custom':\n  CONTEXT:", str(entry)]))
+                            logging.error(' '.join(
+                                ["Skipped unexpected 'config firewall service custom':\n  CONTEXT:", str(entry)]))
                             skip = True
                             break
                         else:
@@ -595,6 +597,7 @@ class DhcpServer:
     lease_time: int
     dns_server: List[IPv4Address]
     domain: Optional[str]
+    netmask: Optional[IPv4Address]
     gateway: Optional[IPv4Address]
     ip_range_start: IPv4Address
     ip_range_end: IPv4Address
@@ -607,6 +610,7 @@ if 'dhcp_server' in system_raw.keys():
         lease_time = None
         dns_server = []
         domain = None
+        netmask = None
         gateway = None
         ip_range_start = None
         ip_range_end = None
@@ -614,6 +618,23 @@ if 'dhcp_server' in system_raw.keys():
             if cmd.data == 'subcommand_field_set':
                 if cmd.children[0] == 'lease-time':
                     lease_time = int(cmd.children[1].children[0])
+                elif cmd.children[0] == 'default-gateway':
+                    if gateway is None:
+                        gateway = IPv4Address(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'netmask':
+                    if netmask is None:
+                        netmask = IPv4Address(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'domain':
+                    if domain is None:
+                        domain = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
+                elif re_dns_server.match(cmd.children[0]):
+                    dns_server.append(IPv4Address(cmd.children[1].children[0]))
                 else:
                     if cmd.children[0] != 'TODO':
                         logging.warning(' '.join(
@@ -642,8 +663,45 @@ if 'dhcp_server' in system_raw.keys():
                     logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
             else:
                 raise RuntimeError("Expected 'set' command!")
-        if ip is None:
-            raise RuntimeError("Incompletely parsed record")
-        fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
+        fw_dhcp_server.append(
+            DhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end))
 else:
     logging.warning('Could not find section \'config system dhcp server\'')
+
+#######################################################################################
+# experimental generation of OPNsense config entries
+#######################################################################################
+
+
+import xml.etree.ElementTree as ET
+import time
+
+
+def pretty_xml(element: ET.Element, indent='  ') -> str:
+    import xml.dom.minidom
+    xml_str = ET.tostring(element, 'utf-8')
+    dom = xml.dom.minidom.parseString(xml_str)
+    return '\n'.join([line for line in dom.toprettyxml(indent=indent).split('\n') if line.strip()])
+
+
+def add_xml_created_signature_to_fw_rule(element: ET.Element) -> None:
+    created = ET.SubElement(element, 'created')
+    ET.SubElement(created, 'username').text = 'root@fortigate-migration-tool'
+    t = str(time.time()).split('.')
+    ET.SubElement(created, 'time').text = '.'.join([t[0], t[1][:4]])
+    ET.SubElement(created, 'description').text = 'created by the automatic fortigate-migration-tool'
+
+
+doc = ET.parse("config-site-2-opnsense-1.localdomain-20200716144836.xml")
+root = doc.getroot()
+
+root.find('rrddata').clear()
+for x in root.findall('cert'):
+    x.clear()
+
+new_rule = ET.SubElement(root.find('filter'), 'rule')
+ET.SubElement(new_rule, 'type').text = 'pass'
+add_xml_created_signature_to_fw_rule(new_rule)
+
+with open('config_test.xml', 'w') as f:
+    f.write(pretty_xml(root))
