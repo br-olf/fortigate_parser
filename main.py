@@ -692,15 +692,46 @@ def add_xml_created_signature_to_fw_rule(element: ET.Element) -> None:
     ET.SubElement(created, 'description').text = 'created by the automatic fortigate-migration-tool'
 
 
-doc = ET.parse("config-site-2-opnsense-1.localdomain-20200716144836.xml")
+doc = ET.parse("config-site-2-opnsense-1.localdomain.xml")
 root = doc.getroot()
 
-root.find('rrddata').clear()
+# root.find('rrddata').clear()
 for x in root.findall('cert'):
     x.clear()
 
 new_rule = ET.SubElement(root.find('filter'), 'rule')
-ET.SubElement(new_rule, 'type').text = 'pass'
+ET.SubElement(new_rule, 'type').text = 'pass'  # 'block' 'reject'
+ET.SubElement(new_rule, 'interface').text = 'wan'
+ET.SubElement(new_rule, 'ipprotocol').text = 'inet'  # 'inet6'  # IPv4 or IPv6
+ET.SubElement(new_rule, 'gateway').text = 'Null4'  # optional  # only if direction == in
+
+# Keep state is used for stateful connection tracking.
+# Sloppy state works like keep state, but it does not check sequence numbers. Use it when the firewall does not see all packets.
+# Synproxy state proxies incoming TCP connections to help protect servers from spoofed TCP SYN floods. This option includes the functionality of keep state and modulate state combined.
+# None: Do not use state mechanisms to keep track. This is only useful if you're doing advanced queueing in certain situations. Please check the documentation.
+ET.SubElement(new_rule,
+              'statetype').text = 'keep state'  # 'sloppy state' 'modulate state' 'synproxy state' 'none'  # optional
+
+ET.SubElement(new_rule, 'descr').text = 'Some description'
+ET.SubElement(new_rule, 'direction').text = 'in'  # 'out'
+ET.SubElement(new_rule, 'disabled').text = '1'  # optional
+ET.SubElement(new_rule, 'quick').text = '1'  # '0'  # Apply the action immediately on match.
+ET.SubElement(new_rule, 'protocol').text = 'icmp'  # 'tcp/udp' 'udp' 'tcp' ...  # optional
+ET.SubElement(new_rule, 'icmptype').text = 'echoreq'  # ...  # optional  # only if protocol == icmp
+
+src = ET.SubElement(new_rule, 'source')
+if False:
+    ET.SubElement(src, 'any').text = '1'
+elif True:
+    ET.SubElement(src, 'address').text = '10.1.1.0/24'  # 'addr_alias' 'alias_group' ' 127.0.0.1'
+else:
+    ET.SubElement(src, 'network').text = 'lan'  # '(self)'
+ET.SubElement(src, 'not').text = '1'  # optional  # invert match
+ET.SubElement(src, 'port').text = '1234-4321'  # '22'  # optional
+
+dst = ET.SubElement(new_rule, 'destination')  # same options as in 'source'
+ET.SubElement(dst, 'any').text = '1'
+
 add_xml_created_signature_to_fw_rule(new_rule)
 
 with open('config_test.xml', 'w') as f:
