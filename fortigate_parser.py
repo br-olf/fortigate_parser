@@ -1,11 +1,10 @@
 import logging
-import pickle
 import re
-from dataclasses import dataclass
-from ipaddress import IPv4Network, IPv4Address, summarize_address_range
-from typing import List, Optional
+from ipaddress import summarize_address_range
 
 from lark import Lark
+
+from utility_dataclasses import *
 
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
@@ -93,14 +92,6 @@ for config in parsed_conf.children:
 #######################################################################################
 logging.info('Extraction of "config firewall address" started')
 
-
-@dataclass
-class FwNetAlias:
-    name: str
-    comment: str
-    net_list: List[IPv4Network]
-
-
 fw_address = []
 if 'address' in firewall_raw.keys():
     for entry in firewall_raw['address'][1:]:
@@ -147,20 +138,13 @@ else:
     logging.critical('Could not find critical important section \'config firewall address\'')
 
 logging.info('Extraction of "config firewall address" finished')
-logging.info('Save to pickles/fw_address.pkl using pickle')
-with open('pickles/fw_address.pkl', 'wb') as f:
-    pickle.dump(fw_address, f, protocol=-1)
+logging.info('Save to pickles/fw_address.json')
+with open('pickles/fw_address.json', 'w') as f:
+    s = FwNetAliasSchema()
+    f.write(s.dumps(fw_address, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall addrgrp" started')
-
-
-@dataclass
-class FwNetAliasGroup:
-    name: str
-    comment: str
-    net_alias_list: List[str]
-
 
 fw_address_group = []
 if 'addrgrp' in firewall_raw.keys():
@@ -189,20 +173,13 @@ else:
     logging.critical('Could not find critical important section \'config firewall addrgrp\'')
 
 logging.info('Extraction of "config firewall addrgrp" finished')
-logging.info('Save to pickles/fw_address_group.pkl using pickle')
-with open('pickles/fw_address_group.pkl', 'wb') as f:
-    pickle.dump(fw_address_group, f, protocol=-1)
+logging.info('Save to pickles/fw_address_group.json')
+with open('pickles/fw_address_group.json', 'w') as f:
+    s = FwNetAliasGroupSchema()
+    f.write(s.dumps(fw_address_group, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall addrgrp" started')
-
-
-@dataclass
-class FwIPAlias:
-    name: str
-    comment: str
-    ip: IPv4Address
-
 
 fw_ippool = []  # used for NAT/PAT
 if 'ippool' in firewall_raw.keys():
@@ -242,33 +219,13 @@ else:
     logging.warning('Could not find section \'config firewall ippool\'')
 
 logging.info('Extraction of "config firewall ippool" finished')
-logging.info('Save to pickles/fw_ippool.pkl using pickle')
-with open('pickles/fw_ippool.pkl', 'wb') as f:
-    pickle.dump(fw_ippool, f, protocol=-1)
+logging.info('Save to pickles/fw_ippool.json')
+with open('pickles/fw_ippool.json', 'w') as f:
+    s = FwIPAliasSchema()
+    f.write(s.dumps(fw_ippool, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall policy" started')
-
-
-@dataclass
-class FwPolicy:
-    src_interface: str
-    dst_interface: str
-    src_alias_list: List[str]
-    dst_alias_list: List[str]
-    action: str
-    service: List[str]
-    log_traffic: str
-    comment: str
-    label: str
-    nat: bool
-    session_ttl: Optional[int]
-    ippool: bool
-    poolname: Optional[str]
-    voip_profile: Optional[str]
-    utm_status: bool
-    nat_ip: Optional[IPv4Network]
-
 
 fw_policy = []
 if 'policy' in firewall_raw.keys():
@@ -451,20 +408,13 @@ else:
     logging.critical('Could not find critical important section \'config firewall policy\'')
 
 logging.info('Extraction of "config firewall policy" finished')
-logging.info('Save to pickles/fw_policy.pkl using pickle')
-with open('pickles/fw_policy.pkl', 'wb') as f:
-    pickle.dump(fw_policy, f, protocol=-1)
+logging.info('Save to pickles/fw_policy.json')
+with open('pickles/fw_policy.json', 'w') as f:
+    s = FwPolicySchema()
+    f.write(s.dumps(fw_policy, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service category" started')
-
-
-@dataclass
-class FwServiceCategroy:
-    name: str
-    comment: str
-    members: List[str]
-
 
 fw_service_category = []
 if 'service_category' in firewall_raw.keys():
@@ -477,36 +427,18 @@ if 'service_category' in firewall_raw.keys():
         if entry.children[1].children[0] != 'comment':
             raise RuntimeError('Unexpected set target')
         comment = entry.children[1].children[1].children[0]
-        fw_service_category.append(FwServiceCategroy(str(name), str(comment), []))
+        fw_service_category.append(FwServiceCategory(str(name), str(comment), []))
 else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
 
 logging.info('Extraction of "config firewall service category" finished')
-logging.info('Save to pickles/fw_service_category.pkl using pickle')
-with open('pickles/fw_service_category.pkl', 'wb') as f:
-    pickle.dump(fw_service_category, f, protocol=-1)
+logging.info('Save to pickles/fw_service_category.json')
+with open('pickles/fw_service_category.json', 'w') as f:
+    s = FwServiceCategorySchema()
+    f.write(s.dumps(fw_service_category, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service custom" started')
-
-
-@dataclass
-class PortRange:
-    start: int
-    end: int
-
-
-@dataclass
-class FwService:
-    name: str
-    comment: Optional[str]
-    category: Optional[str]
-    protocol: Optional[str]
-    icmp_type: Optional[int]
-    tcp_range: Optional[PortRange]  # Maybe List needed
-    udp_range: Optional[PortRange]  # Maybe List needed
-    session_ttl: Optional[str]
-
 
 fw_service = []
 if 'service_custom' in firewall_raw.keys():
@@ -603,20 +535,13 @@ else:
     logging.critical('Could not find critical important section \'config firewall service custom\'')
 
 logging.info('Extraction of "config firewall service custom" finished')
-logging.info('Save to pickles/fw_service.pkl using pickle')
-with open('pickles/fw_service.pkl', 'wb') as f:
-    pickle.dump(fw_service, f, protocol=-1)
+logging.info('Save to pickles/fw_service.json')
+with open('pickles/fw_service.json', 'w') as f:
+    s = FwServiceSchema()
+    f.write(s.dumps(fw_service, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service group" started')
-
-
-@dataclass
-class FwServiceGroup:
-    name: str
-    comment: Optional[str]
-    members: List[str]
-
 
 fw_service_group = []
 if 'service_group' in firewall_raw.keys():
@@ -645,24 +570,13 @@ else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
 
 logging.info('Extraction of "config firewall service group" finished')
-logging.info('Save to pickles/fw_service_group.pkl using pickle')
-with open('pickles/fw_service_group.pkl', 'wb') as f:
-    pickle.dump(fw_service_group, f, protocol=-1)
+logging.info('Save to pickles/fw_service_group.json')
+with open('pickles/fw_service_group.json', 'w') as f:
+    s = FwServiceGroupSchema()
+    f.write(s.dumps(fw_service_group, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config system dhcp server" started')
-
-
-@dataclass
-class DhcpServer:
-    lease_time: int
-    dns_server: List[IPv4Address]
-    domain: Optional[str]
-    netmask: Optional[IPv4Address]
-    gateway: Optional[IPv4Address]
-    ip_range_start: IPv4Address
-    ip_range_end: IPv4Address
-
 
 fw_dhcp_server = []
 re_dns_server = re.compile('dns-server\d+')
@@ -725,11 +639,12 @@ if 'dhcp_server' in system_raw.keys():
             else:
                 raise RuntimeError("Expected 'set' command!")
         fw_dhcp_server.append(
-            DhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end))
+            FwDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end))
 else:
     logging.warning('Could not find section \'config system dhcp server\'')
 
 logging.info('Extraction of "config system dhcp server" finished')
-logging.info('Save to pickles/fw_dhcp_server.pkl using pickle')
-with open('pickles/fw_dhcp_server.pkl', 'wb') as f:
-    pickle.dump(fw_dhcp_server, f, protocol=-1)
+logging.info('Save to pickles/fw_dhcp_server.json')
+with open('pickles/fw_dhcp_server.json', 'w') as f:
+    s = FwDhcpServerSchema()
+    f.write(s.dumps(fw_dhcp_server, many=True))
