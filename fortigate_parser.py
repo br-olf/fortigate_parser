@@ -108,6 +108,7 @@ if 'address' in firewall_raw.keys():
         name = str(entry.children[0])
         ip = []
         ip_s = None
+        fqdn = None
         comment = ''
         for cmd in entry.children[1:]:
             if cmd.data == 'subcommand_field_set':
@@ -131,20 +132,28 @@ if 'address' in firewall_raw.keys():
                             ip.append(i)
                     else:
                         raise RuntimeError("\"end-ip\" without \"start-ip\"")
+                elif cmd.children[0] == 'fqdn':
+                    if fqdn is None:
+                        fqdn = cmd.children[1].children[0].strip('"')
+                    else:
+                        raise RuntimeError("Double \"fqdn\"")
                 else:
-                    if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
+                    if cmd.children[0] != 'color' and cmd.children[0] != 'uuid' and cmd.children[0] != 'type':
                         logging.warning(' '.join(
-                            ['NOT EVALUATED: config firewall address:\n  option:', str(cmd.children[0]), '\n  value:',
+                            ['line', str(cmd.line) + ': NOT EVALUATED: config firewall address:\n  option:',
+                             str(cmd.children[0]), '\n  value:',
                              str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
                 raise RuntimeError("Expected 'set' command!")
         if not ip:
-            logging.error(' '.join([
-                "Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:",
-                str(entry)]))
+            ip = None
+        if ip is None and fqdn is None:
+            logging.error(' '.join(["line", str(
+                entry.line) + ": Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'fqdn' or 'start-ip'/'end-ip':\n  CONTEXT:",
+                                    str(entry)]))
             continue
 
-        fw_data.net_alias.append(FwNetAlias(str(name), str(comment), ip))
+        fw_data.net_alias.append(FwNetAlias(str(name), str(comment), ip, fqdn))
 else:
     logging.critical('Could not find critical important section \'config firewall address\'')
 
@@ -167,7 +176,8 @@ if 'addrgrp' in firewall_raw.keys():
                 else:
                     if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
                         logging.warning(' '.join(
-                            ['NOT EVALUATED: config firewall addrgrp:\n  option:', str(cmd.children[0]), '\n  value:',
+                            ['line', str(cmd.line) + ': NOT EVALUATED: config firewall addrgrp:\n  option:',
+                             str(cmd.children[0]), '\n  value:',
                              str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
                 raise RuntimeError("Expected 'set' command!")
@@ -207,7 +217,8 @@ if 'ippool' in firewall_raw.keys():
                 else:
                     if cmd.children[0] != 'TODO':
                         logging.warning(' '.join(
-                            ['NOT EVALUATED: config firewall ippool:\n  option:', str(cmd.children[0]), '\n  value:',
+                            ['line', str(cmd.line) + ': NOT EVALUATED: config firewall ippool:\n  option:',
+                             str(cmd.children[0]), '\n  value:',
                              str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
                 raise RuntimeError("Expected 'set' command!")
@@ -354,7 +365,8 @@ if 'policy' in firewall_raw.keys():
                     if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
                             and cmd.children[0] != 'logtraffic-start':
                         logging.warning(' '.join(
-                            ['NOT EVALUATED: config firewall policy:\n  option:', str(cmd.children[0]), '\n  value:',
+                            ['line', str(cmd.line) + ': NOT EVALUATED: config firewall policy:\n  option:',
+                             str(cmd.children[0]), '\n  value:',
                              str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             else:
                 raise RuntimeError("Expected 'set' command!")
@@ -362,36 +374,44 @@ if 'policy' in firewall_raw.keys():
             continue
         if src_interface is None:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:",
                  str(entry)]))
             continue
         elif dst_interface is None:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:",
                  str(entry)]))
             continue
         elif action is None:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:", str(entry)]))
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:",
+                 str(entry)]))
             continue
         elif not src_alias_list:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:",
                  str(entry)]))
             continue
         elif not dst_alias_list:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:",
                  str(entry)]))
             continue
         elif not service:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:",
                  str(entry)]))
             continue
         elif label is None:
             logging.error(' '.join(
-                ["Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:",
+                ["line", str(
+                    entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:",
                  str(entry)]))
             continue
         fw_data.policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
@@ -504,7 +524,8 @@ if 'service_custom' in firewall_raw.keys():
                         raise RuntimeError("Encountered conflicting set command")
                 else:
                     if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
-                        logging.warning('NOT EVALUATED: config firewall service custom:', cmd.children[0],
+                        logging.warning('line', str(cmd.line) + ': NOT EVALUATED: config firewall service custom:',
+                                        cmd.children[0],
                                         cmd.children[1:])
         if skip:
             continue
@@ -534,7 +555,8 @@ if 'service_group' in firewall_raw.keys():
             else:
                 if cmd.children[0] != 'color':
                     logging.warning(' '.join(
-                        ['NOT EVALUATED: config firewall service group:', str(cmd.children[0]), str(cmd.children[1:])]))
+                        ['line', str(cmd.line) + ': NOT EVALUATED: config firewall service group:',
+                         str(cmd.children[0]), str(cmd.children[1:])]))
         fw_data.service_group.append(FwServiceGroup(name, comment, members))
 else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
@@ -553,6 +575,7 @@ if 'dhcp_server' in system_raw.keys():
         gateway = None
         ip_range_start = None
         ip_range_end = None
+        interface = None
         for cmd in entry.children[1:]:
             if cmd.data == 'subcommand_field_set':
                 if cmd.children[0] == 'lease-time':
@@ -572,12 +595,18 @@ if 'dhcp_server' in system_raw.keys():
                         domain = str(cmd.children[1].children[0])
                     else:
                         raise RuntimeError("Encountered conflicting set command")
+                elif cmd.children[0] == 'interface':
+                    if interface is None:
+                        interface = str(cmd.children[1].children[0])
+                    else:
+                        raise RuntimeError("Encountered conflicting set command")
                 elif re_dns_server.match(cmd.children[0]):
                     dns_server.append(IPv4Address(cmd.children[1].children[0]))
                 else:
                     if cmd.children[0] != 'TODO':
                         logging.warning(' '.join(
-                            ['NOT EVALUATED: config system dhcp server:\n  option:', str(cmd.children[0]), '\n  value:',
+                            ['line', str(cmd.line) + ': NOT EVALUATED: config system dhcp server:\n  option:',
+                             str(cmd.children[0]), '\n  value:',
                              str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
             elif cmd.data == 'subcommand_config':
 
@@ -603,7 +632,7 @@ if 'dhcp_server' in system_raw.keys():
             else:
                 raise RuntimeError("Expected 'set' command!")
         fw_data.dhcp_server.append(
-            FwDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end))
+            FwDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end, interface))
 else:
     logging.warning('Could not find section \'config system dhcp server\'')
 

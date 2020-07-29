@@ -54,17 +54,19 @@ class FwNetAliasGroupSchema(Schema):
 class FwNetAlias:
     name: str
     comment: str
-    net_list: List[IPv4Network]
+    net_list: Optional[List[IPv4Network]]
+    fqdn: Optional[str]
 
 
 class FwNetAliasSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
-    net_list = mm_fields.List(IPv4NetworkSchema, required=True)
+    net_list = mm_fields.List(IPv4NetworkSchema, allow_none=True)
+    fqdn = mm_fields.String(allow_none=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwNetAlias(data['name'], data['comment'], data['net_list'])
+        return FwNetAlias(data['name'], data['comment'], data['net_list'], data['fqdn'])
 
 
 @dataclass
@@ -216,6 +218,7 @@ class FwDhcpServer:
     gateway: Optional[IPv4Address]
     ip_range_start: IPv4Address
     ip_range_end: IPv4Address
+    interface: str
 
 
 class FwDhcpServerSchema(Schema):
@@ -226,11 +229,12 @@ class FwDhcpServerSchema(Schema):
     gateway = IPv4AddressSchema(allow_none=True)
     ip_range_start = IPv4AddressSchema(required=True)
     ip_range_end = IPv4AddressSchema(required=True)
+    interface = mm_fields.String(required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
         return FwDhcpServer(data['lease_time'], data['dns_server'], data['domain'], data['netmask'],
-                            data['gateway'], data['ip_range_start'], data['ip_range_end'])
+                            data['gateway'], data['ip_range_start'], data['ip_range_end'], data['interface'])
 
 
 @dataclass
