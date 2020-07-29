@@ -1,17 +1,27 @@
 import logging
 import re
+from ipaddress import IPv4Network, IPv4Address
 from ipaddress import summarize_address_range
 
 from lark import Lark
 
-from utility_dataclasses import *
+from utility_dataclasses import FwData, FwPolicy, FwService, FwServiceCategory, FwServiceGroup, FwDhcpServer, \
+    FwNetAlias, FwNetAliasGroup, FwIPAlias, FwDataSchema, PortRange
 
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
-with open("fortigate.lark", "r") as f:
+#######################################################################################
+
+grammar_file = "fortigate.lark"
+fortigate_config_file = "../FW-UV_db.conf"
+output_json_file = "FwData.json"
+
+#######################################################################################
+
+with open(grammar_file, "r") as f:
     grammar = f.read()
 
-with open("../FW-UV_db.conf", "r") as f:
+with open(fortigate_config_file, "r") as f:
     conf = f.read()
 
 parser = Lark(grammar,
@@ -90,9 +100,9 @@ for config in parsed_conf.children:
 #######################################################################################
 # Convert useful information to dataclasses
 #######################################################################################
-logging.info('Extraction of "config firewall address" started')
+fw_data = FwData()
 
-fw_address = []
+logging.info('Extraction of "config firewall address" started')
 if 'address' in firewall_raw.keys():
     for entry in firewall_raw['address'][1:]:
         name = str(entry.children[0])
@@ -133,20 +143,15 @@ if 'address' in firewall_raw.keys():
                 "Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'start-ip'/'end-ip':\n  CONTEXT:",
                 str(entry)]))
             continue
-        fw_address.append(FwNetAlias(str(name), str(comment), ip))
+
+        fw_data.net_alias.append(FwNetAlias(str(name), str(comment), ip))
 else:
     logging.critical('Could not find critical important section \'config firewall address\'')
 
 logging.info('Extraction of "config firewall address" finished')
-logging.info('Save to pickles/fw_address.json')
-with open('pickles/fw_address.json', 'w') as f:
-    s = FwNetAliasSchema()
-    f.write(s.dumps(fw_address, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall addrgrp" started')
-
-fw_address_group = []
 if 'addrgrp' in firewall_raw.keys():
     for entry in firewall_raw['addrgrp'][1:]:
         name = str(entry.children[0])
@@ -168,20 +173,14 @@ if 'addrgrp' in firewall_raw.keys():
                 raise RuntimeError("Expected 'set' command!")
         if not address_keys:
             raise RuntimeError("Incompletely parsed record")
-        fw_address_group.append(FwNetAliasGroup(str(name), str(comment), address_keys))
+        fw_data.net_alias_group.append(FwNetAliasGroup(str(name), str(comment), address_keys))
 else:
     logging.critical('Could not find critical important section \'config firewall addrgrp\'')
 
 logging.info('Extraction of "config firewall addrgrp" finished')
-logging.info('Save to pickles/fw_address_group.json')
-with open('pickles/fw_address_group.json', 'w') as f:
-    s = FwNetAliasGroupSchema()
-    f.write(s.dumps(fw_address_group, many=True))
 
 #######################################################################################
-logging.info('Extraction of "config firewall addrgrp" started')
-
-fw_ippool = []  # used for NAT/PAT
+logging.info('Extraction of "config firewall ippool" started')
 if 'ippool' in firewall_raw.keys():
     for entry in firewall_raw['ippool'][1:]:
         name = str(entry.children[0])
@@ -214,20 +213,14 @@ if 'ippool' in firewall_raw.keys():
                 raise RuntimeError("Expected 'set' command!")
         if ip is None:
             raise RuntimeError("Incompletely parsed record")
-        fw_ippool.append(FwIPAlias(str(name), str(comment), ip))
+        fw_data.ip_alias.append(FwIPAlias(str(name), str(comment), ip))
 else:
     logging.warning('Could not find section \'config firewall ippool\'')
 
 logging.info('Extraction of "config firewall ippool" finished')
-logging.info('Save to pickles/fw_ippool.json')
-with open('pickles/fw_ippool.json', 'w') as f:
-    s = FwIPAliasSchema()
-    f.write(s.dumps(fw_ippool, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall policy" started')
-
-fw_policy = []
 if 'policy' in firewall_raw.keys():
     for entry in firewall_raw['policy'][1:]:
         skip = False
@@ -237,7 +230,7 @@ if 'policy' in firewall_raw.keys():
         dst_alias_list = []
         action = None
         service = []
-        comment = None
+        comment = ''
         label = None
         log_traffic = 'disable'
         nat = False
@@ -401,22 +394,16 @@ if 'policy' in firewall_raw.keys():
                 ["Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:",
                  str(entry)]))
             continue
-        fw_policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
-                                  action, service, log_traffic, comment, label, nat, session_ttl,
-                                  ippool, poolname, voip_profile, utm_status, nat_ip))
+        fw_data.policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
+                                       action, service, log_traffic, comment, label, nat, session_ttl,
+                                       ippool, poolname, voip_profile, utm_status, nat_ip))
 else:
     logging.critical('Could not find critical important section \'config firewall policy\'')
 
 logging.info('Extraction of "config firewall policy" finished')
-logging.info('Save to pickles/fw_policy.json')
-with open('pickles/fw_policy.json', 'w') as f:
-    s = FwPolicySchema()
-    f.write(s.dumps(fw_policy, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service category" started')
-
-fw_service_category = []
 if 'service_category' in firewall_raw.keys():
     for entry in firewall_raw['service_category'][1:]:
         name = str(entry.children[0])
@@ -427,25 +414,19 @@ if 'service_category' in firewall_raw.keys():
         if entry.children[1].children[0] != 'comment':
             raise RuntimeError('Unexpected set target')
         comment = entry.children[1].children[1].children[0]
-        fw_service_category.append(FwServiceCategory(str(name), str(comment), []))
+        fw_data.service_category.append(FwServiceCategory(str(name), str(comment), []))
 else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
 
 logging.info('Extraction of "config firewall service category" finished')
-logging.info('Save to pickles/fw_service_category.json')
-with open('pickles/fw_service_category.json', 'w') as f:
-    s = FwServiceCategorySchema()
-    f.write(s.dumps(fw_service_category, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service custom" started')
-
-fw_service = []
 if 'service_custom' in firewall_raw.keys():
     for entry in firewall_raw['service_custom'][1:]:
         skip = False
         name = str(entry.children[0])
-        comment = None
+        comment = ''
         category = None
         protocol = None
         icmp_type = None
@@ -458,7 +439,7 @@ if 'service_custom' in firewall_raw.keys():
                     if category is None:
                         category = str(cmd.children[1].children[0])
                         found = False
-                        for cat in fw_service_category:
+                        for cat in fw_data.service_category:
                             if cat.name == category:
                                 cat.members.append(name)
                                 found = True
@@ -468,10 +449,7 @@ if 'service_custom' in firewall_raw.keys():
                     else:
                         raise RuntimeError("Encountered conflicting set command")
                 elif cmd.children[0] == 'comment':
-                    if comment is None:
-                        comment = str(cmd.children[1].children[0])
-                    else:
-                        raise RuntimeError("Encountered conflicting set command")
+                    comment = str(cmd.children[1].children[0])
                 elif cmd.children[0] == 'protocol':
                     if protocol is None:
                         protocol = str(cmd.children[1].children[0])
@@ -530,31 +508,23 @@ if 'service_custom' in firewall_raw.keys():
                                         cmd.children[1:])
         if skip:
             continue
-        fw_service.append(FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
+        fw_data.service.append(
+            FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
 else:
     logging.critical('Could not find critical important section \'config firewall service custom\'')
 
 logging.info('Extraction of "config firewall service custom" finished')
-logging.info('Save to pickles/fw_service.json')
-with open('pickles/fw_service.json', 'w') as f:
-    s = FwServiceSchema()
-    f.write(s.dumps(fw_service, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config firewall service group" started')
-
-fw_service_group = []
 if 'service_group' in firewall_raw.keys():
     for entry in firewall_raw['service_group'][1:]:
         name = str(entry.children[0])
-        comment = None
+        comment = ''
         members = []
         for cmd in entry.children[1:]:
             if cmd.children[0] == 'comment':
-                if comment is None:
-                    comment = str(cmd.children[1].children[0])
-                else:
-                    raise RuntimeError("Encountered conflicting set command")
+                comment = str(cmd.children[1].children[0])
             elif cmd.children[0] == 'member':
                 if not members:
                     for val in cmd.children[1].children:
@@ -565,20 +535,14 @@ if 'service_group' in firewall_raw.keys():
                 if cmd.children[0] != 'color':
                     logging.warning(' '.join(
                         ['NOT EVALUATED: config firewall service group:', str(cmd.children[0]), str(cmd.children[1:])]))
-        fw_service_group.append(FwServiceGroup(name, comment, members))
+        fw_data.service_group.append(FwServiceGroup(name, comment, members))
 else:
     logging.critical('Could not find critical important section \'config firewall service group\'')
 
 logging.info('Extraction of "config firewall service group" finished')
-logging.info('Save to pickles/fw_service_group.json')
-with open('pickles/fw_service_group.json', 'w') as f:
-    s = FwServiceGroupSchema()
-    f.write(s.dumps(fw_service_group, many=True))
 
 #######################################################################################
 logging.info('Extraction of "config system dhcp server" started')
-
-fw_dhcp_server = []
 re_dns_server = re.compile('dns-server\d+')
 if 'dhcp_server' in system_raw.keys():
     for entry in system_raw['dhcp_server'][1:]:
@@ -638,13 +602,23 @@ if 'dhcp_server' in system_raw.keys():
                     logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
             else:
                 raise RuntimeError("Expected 'set' command!")
-        fw_dhcp_server.append(
+        fw_data.dhcp_server.append(
             FwDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end))
 else:
     logging.warning('Could not find section \'config system dhcp server\'')
 
 logging.info('Extraction of "config system dhcp server" finished')
-logging.info('Save to pickles/fw_dhcp_server.json')
-with open('pickles/fw_dhcp_server.json', 'w') as f:
-    s = FwDhcpServerSchema()
-    f.write(s.dumps(fw_dhcp_server, many=True))
+
+#######################################################################################
+logging.info('Saving extracted data to ' + output_json_file)
+with open(output_json_file, 'w') as f:
+    s = FwDataSchema()
+    f.write(s.dumps(fw_data))
+
+logging.info('Testing data deserialization of ' + output_json_file)
+with open(output_json_file, 'r') as f:
+    s = FwDataSchema()
+    deserialized_data = s.loads(f.read())
+if deserialized_data != fw_data:
+    logging.critical('Could not verify data in ' + output_json_file)
+    assert deserialized_data == fw_data
