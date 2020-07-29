@@ -8,6 +8,29 @@ from lark import Lark
 from utility_dataclasses import FwData, FwPolicy, FwService, FwServiceCategory, FwServiceGroup, FwDhcpServer, \
     FwNetAlias, FwNetAliasGroup, FwIPAlias, FwDataSchema, PortRange
 
+_regex_cname = re.compile('^[a-zA-Z0-9_]+$')
+
+
+def to_cname(name) -> str:
+    """Ensures output is a string containing only characters from [a-zA-Z0-9_]"""
+    n = str(name)
+    if _regex_cname.match(n):
+        return n
+    else:
+        c1 = n.replace('"', '').replace("'", '').replace(',', '_').replace('.', '_').replace('-', '_')
+        c1 = c1.replace('ü', 'ue').replace('ö', 'oe').replace('ä', 'ae').replace('ß', 'ss')
+        c1 = c1.replace('Ü', 'Ue').replace('Ö', 'Oe').replace('Ä', 'Ae')
+        if _regex_cname.match(c1):
+            return c1
+        else:
+            c2 = ''
+            for char in c1:
+                if _regex_cname.match(char):
+                    c2 += char
+                else:
+                    c2 += '_'
+            return c2
+
 
 def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file: str) -> None:
     """Parses a fortigate configuration using LARK and extracts firewall specific rules as well as DHCP configurations
@@ -103,7 +126,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config firewall address" started')
     if 'address' in firewall_raw.keys():
         for entry in firewall_raw['address'][1:]:
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             ip = []
             ip_s = None
             fqdn = None
@@ -118,7 +141,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                             # case subnet
                             ip.append(IPv4Network(cmd.children[1].children[0]))
                     elif cmd.children[0] == 'comment':
-                        comment = cmd.children[1].children[0]
+                        comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'start-ip':
                         if ip_s is None:
                             ip_s = IPv4Address(cmd.children[1].children[0])
@@ -161,16 +184,16 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config firewall addrgrp" started')
     if 'addrgrp' in firewall_raw.keys():
         for entry in firewall_raw['addrgrp'][1:]:
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             address_keys = []
             comment = ''
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comment':
-                        comment = cmd.children[1].children[0]
+                        comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'member':
                         for addr_key in cmd.children[1].children:
-                            address_keys.append(str(addr_key))
+                            address_keys.append(to_cname(addr_key))
                     else:
                         if cmd.children[0] != 'color' and cmd.children[0] != 'uuid':
                             logging.warning(' '.join(
@@ -191,14 +214,14 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config firewall ippool" started')
     if 'ippool' in firewall_raw.keys():
         for entry in firewall_raw['ippool'][1:]:
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             ip = None
             ip_s = None
             comment = ''
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comments':
-                        comment = cmd.children[1].children[0]
+                        comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'startip':
                         if ip_s is None:
                             ip_s = IPv4Address(cmd.children[1].children[0])
@@ -257,7 +280,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                             skip = True
                             break
                     elif cmd.children[0] == 'comments':
-                        comment = cmd.children[1].children[0]
+                        comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'srcintf':
                         if src_interface is None:
                             src_interface = str(cmd.children[1].children[0])
@@ -346,7 +369,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                             raise RuntimeError("Encountered conflicting set command")
                     elif cmd.children[0] == 'poolname':
                         if poolname is None:
-                            poolname = str(cmd.children[1].children[0])
+                            poolname = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError("Encountered conflicting set command")
                     elif cmd.children[0] == 'voip-profile':
@@ -424,14 +447,14 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config firewall service category" started')
     if 'service_category' in firewall_raw.keys():
         for entry in firewall_raw['service_category'][1:]:
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             if len(entry.children[1:]) != 1:
                 raise RuntimeError('Unexpected number of commands')
             if entry.children[1].data != 'subcommand_field_set':
                 raise RuntimeError('Unexpected type of command')
             if entry.children[1].children[0] != 'comment':
                 raise RuntimeError('Unexpected set target')
-            comment = entry.children[1].children[1].children[0]
+            comment = str(entry.children[1].children[1].children[0]).strip('"')
             fw_data.service_category.append(FwServiceCategory(str(name), str(comment), []))
     else:
         logging.critical('Could not find critical important section \'config firewall service group\'')
@@ -443,7 +466,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     if 'service_custom' in firewall_raw.keys():
         for entry in firewall_raw['service_custom'][1:]:
             skip = False
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             comment = ''
             category = None
             protocol = None
@@ -467,7 +490,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                         else:
                             raise RuntimeError("Encountered conflicting set command")
                     elif cmd.children[0] == 'comment':
-                        comment = str(cmd.children[1].children[0])
+                        comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'protocol':
                         if protocol is None:
                             protocol = str(cmd.children[1].children[0])
@@ -538,12 +561,12 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config firewall service group" started')
     if 'service_group' in firewall_raw.keys():
         for entry in firewall_raw['service_group'][1:]:
-            name = str(entry.children[0])
+            name = to_cname(entry.children[0])
             comment = ''
             members = []
             for cmd in entry.children[1:]:
                 if cmd.children[0] == 'comment':
-                    comment = str(cmd.children[1].children[0])
+                    comment = str(cmd.children[1].children[0]).strip('"')
                 elif cmd.children[0] == 'member':
                     if not members:
                         for val in cmd.children[1].children:
