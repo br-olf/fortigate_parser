@@ -47,3 +47,17 @@ def pp_fortigate_conf(conf: str, intent: str = " " * 2) -> str:
         else:
             output += intent * (conf_intent_count + edit_intent_count) + line + '\n'
     return output
+
+
+if __name__ == '__main__':
+    with open("../FW-SV_db.conf", "r") as f:
+        fortigate_config = f.read()
+
+    with open("pretty_SV_fortigate.conf", "w") as f:
+        f.write(pp_fortigate_conf(fortigate_config))
+
+    with open("../FW-UV_db.conf", "r") as f:
+        fortigate_config = f.read()
+
+    with open("pretty_UV_fortigate.conf", "w") as f:
+        f.write(pp_fortigate_conf(fortigate_config))
