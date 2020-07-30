@@ -1,7 +1,6 @@
 import logging
 import re
-from ipaddress import IPv4Network, IPv4Address
-from ipaddress import summarize_address_range
+from ipaddress import IPv4Network, IPv4Address, summarize_address_range
 
 from lark import Lark
 
@@ -13,11 +12,11 @@ _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
 def to_cname(name) -> str:
     """Ensures output is a string containing only characters from [a-zA-Z0-9_]"""
-    n = str(name)
+    n = str(name).strip('\'" \t')
     if _regex_cname.match(n):
         return n
     else:
-        c1 = n.replace('"', '').replace("'", '').replace(',', '_').replace('.', '_').replace('-', '_')
+        c1 = n.replace(',', '_').replace('.', '_').replace('-', '_')
         c1 = c1.replace('ü', 'ue').replace('ö', 'oe').replace('ä', 'ae').replace('ß', 'ss')
         c1 = c1.replace('Ü', 'Ue').replace('Ö', 'Oe').replace('Ä', 'Ae')
         if _regex_cname.match(c1):
@@ -32,27 +31,22 @@ def to_cname(name) -> str:
             return c2
 
 
-def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file: str) -> None:
-    """Parses a fortigate configuration using LARK and extracts firewall specific rules as well as DHCP configurations
+# noinspection PyUnresolvedReferences
+def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
+    """Parses a fortigate configuration using LARK and extracts firewall specific date as well as DHCP configurations
 
-    :param fortigate_config_file The configuraiton file to parse
-    :param output_json_file Path for the extracted data in JSON format
-    :param grammar_file Path to the LARK grammar file
+    :param fortigate_config The raw configuraiton file contents to parse
+    :param fortigate_lark_grammar LARK grammar to parse fortigate configurations
+    :returns extracted data as JSON serialized FwData class
     """
-    with open(grammar_file, "r") as f:
-        grammar = f.read()
 
-    with open(fortigate_config_file, "r") as f:
-        conf = f.read()
-
-    parser = Lark(grammar,
+    parser = Lark(fortigate_lark_grammar,
                   parser="lalr",
                   propagate_positions=True,
                   start="root",
                   debug=True)
 
-    parsed_conf = parser.parse(conf)
-    del conf
+    parsed_conf = parser.parse(fortigate_config)
     logging.info('Fortigate configuration parsed')
 
     #######################################################################################
@@ -169,9 +163,9 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
             if not ip:
                 ip = None
             if ip is None and fqdn is None:
-                logging.error(' '.join(["line", str(
-                    entry.line) + ": Skipped incomplete/unparseable 'config firewall address': missing 'subnet' or 'fqdn' or 'start-ip'/'end-ip':\n  CONTEXT:",
-                                        str(entry)]))
+                logging.error(' '.join(
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall address':",
+                     "missing 'subnet' or 'fqdn' or 'start-ip'/'end-ip':\n  CONTEXT:", str(entry)]))
                 continue
 
             fw_data.net_alias.append(FwNetAlias(str(name), str(comment), ip, fqdn))
@@ -385,6 +379,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                     else:
                         if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
                                 and cmd.children[0] != 'logtraffic-start':
+                            # noinspection PyUnresolvedReferences
                             logging.warning(' '.join(
                                 ['line', str(cmd.line) + ': NOT EVALUATED: config firewall policy:\n  option:',
                                  str(cmd.children[0]), '\n  value:',
@@ -395,45 +390,38 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
                 continue
             if src_interface is None:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'srcintf':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'srcintf':\n  CONTEXT:", str(entry)]))
                 continue
             elif dst_interface is None:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'dstintf':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'dstintf':\n  CONTEXT:", str(entry)]))
                 continue
             elif action is None:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'action':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'action':\n  CONTEXT:", str(entry)]))
                 continue
             elif not src_alias_list:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'srcaddr':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'srcaddr':\n  CONTEXT:", str(entry)]))
                 continue
             elif not dst_alias_list:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'dstaddr':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'dstaddr':\n  CONTEXT:", str(entry)]))
                 continue
             elif not service:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'service':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'service':\n  CONTEXT:", str(entry)]))
                 continue
             elif label is None:
                 logging.error(' '.join(
-                    ["line", str(
-                        entry.line) + ": Skipped incomplete/unparseable 'config firewall policy': missing 'global-label':\n  CONTEXT:",
-                     str(entry)]))
+                    ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
+                     "missing 'global-label':\n  CONTEXT:", str(entry)]))
                 continue
             fw_data.policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
                                            action, service, log_traffic, comment, label, nat, session_ttl,
@@ -586,7 +574,7 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
 
     #######################################################################################
     logging.info('Extraction of "config system dhcp server" started')
-    re_dns_server = re.compile('dns-server\d+')
+    re_dns_server = re.compile('dns-server[0-9]+')
     if 'dhcp_server' in system_raw.keys():
         for entry in system_raw['dhcp_server'][1:]:
             lease_time = None
@@ -662,25 +650,33 @@ def parse_config(fortigate_config_file: str, output_json_file: str, grammar_file
     logging.info('Extraction of "config system dhcp server" finished')
 
     #######################################################################################
-    logging.info('Saving extracted data to ' + output_json_file)
-    with open(output_json_file, 'w') as f:
-        s = FwDataSchema()
-        f.write(s.dumps(fw_data))
+    logging.info('Serializing extracted data')
+    s = FwDataSchema()
+    serialized_data = s.dumps(fw_data)
 
-    logging.info('Testing data deserialization of ' + output_json_file)
-    with open(output_json_file, 'r') as f:
-        s = FwDataSchema()
-        deserialized_data = s.loads(f.read())
+    logging.info('Testing data deserialization')
+    deserialized_data = s.loads(serialized_data)
+
     if deserialized_data != fw_data:
-        logging.critical('Could not verify data in ' + output_json_file)
+        logging.critical('Could not verify serialized data')
         assert deserialized_data == fw_data
+    return serialized_data
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
-    grammar_file = "fortigate.lark"
     fortigate_config_file = "../FW-UV_db.conf"
+    grammar_file = "fortigate.lark"
     output_json_file = "FwData.json"
 
-    parse_config(fortigate_config_file, output_json_file, grammar_file)
+    with open(grammar_file, "r") as f:
+        fortigate_lark_grammar = f.read()
+
+    with open(fortigate_config_file, "r") as f:
+        fortigate_config = f.read()
+
+    json_data = parse_config(fortigate_config, fortigate_lark_grammar)
+
+    with open(output_json_file, 'w') as f:
+        f.write(json_data)
