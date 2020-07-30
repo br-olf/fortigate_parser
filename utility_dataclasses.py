@@ -34,31 +34,31 @@ class IPv4AddressSchema(mm_fields.Field):
 
 
 @dataclass
-class FwNetAliasGroup:
+class FgNetAliasGroup:
     name: str
     comment: str
     net_alias_list: List[str]
 
 
-class FwNetAliasGroupSchema(Schema):
+class FgNetAliasGroupSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     net_alias_list = mm_fields.List(mm_fields.String, required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwNetAliasGroup(data['name'], data['comment'], data['net_alias_list'])
+        return FgNetAliasGroup(data['name'], data['comment'], data['net_alias_list'])
 
 
 @dataclass
-class FwNetAlias:
+class FgNetAlias:
     name: str
     comment: str
     net_list: Optional[List[IPv4Network]]
     fqdn: Optional[str]
 
 
-class FwNetAliasSchema(Schema):
+class FgNetAliasSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     net_list = mm_fields.List(IPv4NetworkSchema, allow_none=True)
@@ -66,45 +66,45 @@ class FwNetAliasSchema(Schema):
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwNetAlias(data['name'], data['comment'], data['net_list'], data['fqdn'])
+        return FgNetAlias(data['name'], data['comment'], data['net_list'], data['fqdn'])
 
 
 @dataclass
-class FwIPAlias:
+class FgIPAlias:
     name: str
     comment: str
     ip: IPv4Address
 
 
-class FwIPAliasSchema(Schema):
+class FgIPAliasSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     ip = IPv4AddressSchema(required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwIPAlias(data['name'], data['comment'], data['ip'])
+        return FgIPAlias(data['name'], data['comment'], data['ip'])
 
 
 @dataclass
-class FwServiceCategory:
+class FgServiceCategory:
     name: str
     comment: str
     members: List[str]
 
 
-class FwServiceCategorySchema(Schema):
+class FgServiceCategorySchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     members = mm_fields.List(mm_fields.String, required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwServiceCategory(data['name'], data['comment'], data['members'])
+        return FgServiceCategory(data['name'], data['comment'], data['members'])
 
 
 @dataclass
-class FwPolicy:
+class FgPolicy:
     src_interface: str
     dst_interface: str
     src_alias_list: List[str]
@@ -123,7 +123,7 @@ class FwPolicy:
     nat_ip: Optional[IPv4Network]
 
 
-class FwPolicySchema(Schema):
+class FgPolicySchema(Schema):
     src_interface = mm_fields.String(required=True)
     dst_interface = mm_fields.String(required=True)
     src_alias_list = mm_fields.List(mm_fields.String, required=True)
@@ -143,7 +143,7 @@ class FwPolicySchema(Schema):
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwPolicy(data['src_interface'], data['dst_interface'], data['src_alias_list'], data['dst_alias_list'],
+        return FgPolicy(data['src_interface'], data['dst_interface'], data['src_alias_list'], data['dst_alias_list'],
                         data['action'], data['service'], data['log_traffic'], data['comment'], data['label'],
                         data['nat'], data['session_ttl'], data['ippool'], data['poolname'], data['voip_profile'],
                         data['utm_status'], data['nat_ip'])
@@ -165,7 +165,7 @@ class PortRangeSchema(Schema):
 
 
 @dataclass
-class FwService:
+class FgService:
     name: str
     comment: str
     category: Optional[str]
@@ -176,7 +176,7 @@ class FwService:
     session_ttl: Optional[int]
 
 
-class FwServiceSchema(Schema):
+class FgServiceSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     category = mm_fields.String(allow_none=True)
@@ -188,29 +188,29 @@ class FwServiceSchema(Schema):
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwService(data['name'], data['comment'], data['category'], data['protocol'],
+        return FgService(data['name'], data['comment'], data['category'], data['protocol'],
                          data['icmp_type'], data['tcp_range'], data['udp_range'], data['session_ttl'])
 
 
 @dataclass
-class FwServiceGroup:
+class FgServiceGroup:
     name: str
     comment: str
     members: List[str]
 
 
-class FwServiceGroupSchema(Schema):
+class FgServiceGroupSchema(Schema):
     name = mm_fields.String(required=True)
     comment = mm_fields.String(required=True)
     members = mm_fields.List(mm_fields.String, required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwServiceGroup(data['name'], data['comment'], data['members'])
+        return FgServiceGroup(data['name'], data['comment'], data['members'])
 
 
 @dataclass
-class FwDhcpServer:
+class FgDhcpServer:
     lease_time: int
     dns_server: List[IPv4Address]
     domain: Optional[str]
@@ -221,7 +221,7 @@ class FwDhcpServer:
     interface: str
 
 
-class FwDhcpServerSchema(Schema):
+class FgDhcpServerSchema(Schema):
     lease_time = mm_fields.Integer(required=True)
     dns_server = mm_fields.List(IPv4AddressSchema, required=True)
     domain = mm_fields.String(allow_none=True)
@@ -233,33 +233,33 @@ class FwDhcpServerSchema(Schema):
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwDhcpServer(data['lease_time'], data['dns_server'], data['domain'], data['netmask'],
+        return FgDhcpServer(data['lease_time'], data['dns_server'], data['domain'], data['netmask'],
                             data['gateway'], data['ip_range_start'], data['ip_range_end'], data['interface'])
 
 
 @dataclass
-class FwData:
-    dhcp_server: List[FwDhcpServer] = dc_field(default_factory=list)
-    net_alias: List[FwNetAlias] = dc_field(default_factory=list)
-    net_alias_group: List[FwNetAliasGroup] = dc_field(default_factory=list)
-    ip_alias: List[FwIPAlias] = dc_field(default_factory=list)
-    policy: List[FwPolicy] = dc_field(default_factory=list)
-    service: List[FwService] = dc_field(default_factory=list)
-    service_group: List[FwServiceGroup] = dc_field(default_factory=list)
-    service_category: List[FwServiceCategory] = dc_field(default_factory=list)
+class FgData:
+    dhcp_server: List[FgDhcpServer] = dc_field(default_factory=list)
+    net_alias: List[FgNetAlias] = dc_field(default_factory=list)
+    net_alias_group: List[FgNetAliasGroup] = dc_field(default_factory=list)
+    ip_alias: List[FgIPAlias] = dc_field(default_factory=list)
+    policy: List[FgPolicy] = dc_field(default_factory=list)
+    service: List[FgService] = dc_field(default_factory=list)
+    service_group: List[FgServiceGroup] = dc_field(default_factory=list)
+    service_category: List[FgServiceCategory] = dc_field(default_factory=list)
 
 
-class FwDataSchema(Schema):
-    dhcp_server = mm_fields.List(mm_fields.Nested(FwDhcpServerSchema), required=True)
-    net_alias = mm_fields.List(mm_fields.Nested(FwNetAliasSchema), required=True)
-    net_alias_group = mm_fields.List(mm_fields.Nested(FwNetAliasGroupSchema), required=True)
-    ip_alias = mm_fields.List(mm_fields.Nested(FwIPAliasSchema), required=True)
-    policy = mm_fields.List(mm_fields.Nested(FwPolicySchema), required=True)
-    service = mm_fields.List(mm_fields.Nested(FwServiceSchema), required=True)
-    service_group = mm_fields.List(mm_fields.Nested(FwServiceGroupSchema), required=True)
-    service_category = mm_fields.List(mm_fields.Nested(FwServiceCategorySchema), required=True)
+class FgDataSchema(Schema):
+    dhcp_server = mm_fields.List(mm_fields.Nested(FgDhcpServerSchema), required=True)
+    net_alias = mm_fields.List(mm_fields.Nested(FgNetAliasSchema), required=True)
+    net_alias_group = mm_fields.List(mm_fields.Nested(FgNetAliasGroupSchema), required=True)
+    ip_alias = mm_fields.List(mm_fields.Nested(FgIPAliasSchema), required=True)
+    policy = mm_fields.List(mm_fields.Nested(FgPolicySchema), required=True)
+    service = mm_fields.List(mm_fields.Nested(FgServiceSchema), required=True)
+    service_group = mm_fields.List(mm_fields.Nested(FgServiceGroupSchema), required=True)
+    service_category = mm_fields.List(mm_fields.Nested(FgServiceCategorySchema), required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
-        return FwData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
+        return FgData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
                       data['policy'], data['service'], data['service_group'], data['service_category'])

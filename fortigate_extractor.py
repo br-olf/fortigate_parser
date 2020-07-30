@@ -4,8 +4,8 @@ from ipaddress import IPv4Network, IPv4Address, summarize_address_range
 
 from lark import Lark
 
-from utility_dataclasses import FwData, FwPolicy, FwService, FwServiceCategory, FwServiceGroup, FwDhcpServer, \
-    FwNetAlias, FwNetAliasGroup, FwIPAlias, FwDataSchema, PortRange
+from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
+    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -115,7 +115,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     #######################################################################################
     # Convert useful information to dataclasses
     #######################################################################################
-    fw_data = FwData()
+    fw_data = FgData()
 
     logging.info('Extraction of "config firewall address" started')
     if 'address' in firewall_raw.keys():
@@ -168,7 +168,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                      "missing 'subnet' or 'fqdn' or 'start-ip'/'end-ip':\n  CONTEXT:", str(entry)]))
                 continue
 
-            fw_data.net_alias.append(FwNetAlias(str(name), str(comment), ip, fqdn))
+            fw_data.net_alias.append(FgNetAlias(str(name), str(comment), ip, fqdn))
     else:
         logging.critical('Could not find critical important section \'config firewall address\'')
 
@@ -198,7 +198,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                     raise RuntimeError("Expected 'set' command!")
             if not address_keys:
                 raise RuntimeError("Incompletely parsed record")
-            fw_data.net_alias_group.append(FwNetAliasGroup(str(name), str(comment), address_keys))
+            fw_data.net_alias_group.append(FgNetAliasGroup(str(name), str(comment), address_keys))
     else:
         logging.critical('Could not find critical important section \'config firewall addrgrp\'')
 
@@ -239,7 +239,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                     raise RuntimeError("Expected 'set' command!")
             if ip is None:
                 raise RuntimeError("Incompletely parsed record")
-            fw_data.ip_alias.append(FwIPAlias(str(name), str(comment), ip))
+            fw_data.ip_alias.append(FgIPAlias(str(name), str(comment), ip))
     else:
         logging.warning('Could not find section \'config firewall ippool\'')
 
@@ -423,7 +423,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                     ["line", str(entry.line) + ": Skipped incomplete/unparseable 'config firewall policy':",
                      "missing 'global-label':\n  CONTEXT:", str(entry)]))
                 continue
-            fw_data.policy.append(FwPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
+            fw_data.policy.append(FgPolicy(src_interface, dst_interface, src_alias_list, dst_alias_list,
                                            action, service, log_traffic, comment, label, nat, session_ttl,
                                            ippool, poolname, voip_profile, utm_status, nat_ip))
     else:
@@ -443,7 +443,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
             if entry.children[1].children[0] != 'comment':
                 raise RuntimeError('Unexpected set target')
             comment = str(entry.children[1].children[1].children[0]).strip('"')
-            fw_data.service_category.append(FwServiceCategory(str(name), str(comment), []))
+            fw_data.service_category.append(FgServiceCategory(str(name), str(comment), []))
     else:
         logging.critical('Could not find critical important section \'config firewall service group\'')
 
@@ -539,7 +539,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
             if skip:
                 continue
             fw_data.service.append(
-                FwService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
+                FgService(name, comment, category, protocol, icmp_type, tcp_range, udp_range, session_ttl))
     else:
         logging.critical('Could not find critical important section \'config firewall service custom\'')
 
@@ -566,7 +566,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                         logging.warning(' '.join(
                             ['line', str(cmd.line) + ': NOT EVALUATED: config firewall service group:',
                              str(cmd.children[0]), str(cmd.children[1:])]))
-            fw_data.service_group.append(FwServiceGroup(name, comment, members))
+            fw_data.service_group.append(FgServiceGroup(name, comment, members))
     else:
         logging.critical('Could not find critical important section \'config firewall service group\'')
 
@@ -643,7 +643,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                 else:
                     raise RuntimeError("Expected 'set' command!")
             fw_data.dhcp_server.append(
-                FwDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end, interface))
+                FgDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end, interface))
     else:
         logging.warning('Could not find section \'config system dhcp server\'')
 
@@ -651,7 +651,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
 
     #######################################################################################
     logging.info('Serializing extracted data')
-    s = FwDataSchema()
+    s = FgDataSchema()
     serialized_data = s.dumps(fw_data)
 
     logging.info('Testing data deserialization')

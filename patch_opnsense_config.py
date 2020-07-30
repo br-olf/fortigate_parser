@@ -4,7 +4,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from typing import List
 
-from utility_dataclasses import FwData, FwDataSchema, FwNetAlias, FwNetAliasGroup, FwIPAlias
+from utility_dataclasses import FgData, FgDataSchema, FgNetAlias, FgNetAliasGroup, FgIPAlias
 
 
 def patch_config(config_xml_file: str, fw_data_json_file: str, output_xml_file: str) -> None:
@@ -26,13 +26,13 @@ def _add_created_signature_to_fw_rule(element: ET.Element) -> None:
     ET.SubElement(created, 'description').text = 'created by automated fortigate-migration-tool'
 
 
-def _read_json_file(fw_data_json_file: str) -> FwData:
+def _read_json_file(fw_data_json_file: str) -> FgData:
     with open(fw_data_json_file, 'r') as f:
-        s = FwDataSchema()
+        s = FgDataSchema()
         return s.loads(f.read())
 
 
-def _add_net_aliases(config_root: ET.Element, net_alias: List[FwNetAlias]) -> None:
+def _add_net_aliases(config_root: ET.Element, net_alias: List[FgNetAlias]) -> None:
     for fw_alias in net_alias:
         new_alias = ET.SubElement(config_root.find('OPNsense').find('Firewall').find('Alias').find('aliases'), 'alias')
         new_alias.set('uuid', str(uuid.uuid4()))
@@ -50,7 +50,7 @@ def _add_net_aliases(config_root: ET.Element, net_alias: List[FwNetAlias]) -> No
             ET.SubElement(new_alias, 'content').text = '\n'.join([x.exploded for x in fw_alias.net_list])
 
 
-def _add_group_aliases(config_root: ET.Element, net_alias_group: List[FwNetAliasGroup]) -> None:
+def _add_group_aliases(config_root: ET.Element, net_alias_group: List[FgNetAliasGroup]) -> None:
     for fw_alias_group in net_alias_group:
         new_alias = ET.SubElement(config_root.find('OPNsense').find('Firewall').find('Alias').find('aliases'), 'alias')
         new_alias.set('uuid', str(uuid.uuid4()))
@@ -64,7 +64,7 @@ def _add_group_aliases(config_root: ET.Element, net_alias_group: List[FwNetAlias
         ET.SubElement(new_alias, 'content').text = '\n'.join(fw_alias_group.net_alias_list)
 
 
-def _add_ip_aliases(config_root: ET.Element, ip_alias: List[FwIPAlias]) -> None:
+def _add_ip_aliases(config_root: ET.Element, ip_alias: List[FgIPAlias]) -> None:
     for fw_ip_alias in ip_alias:
         new_alias = ET.SubElement(config_root.find('OPNsense').find('Firewall').find('Alias').find('aliases'), 'alias')
         new_alias.set('uuid', str(uuid.uuid4()))
@@ -93,6 +93,10 @@ if __name__ == '__main__':
     _add_net_aliases(config_root, fw_data.net_alias)
     _add_group_aliases(config_root, fw_data.net_alias_group)
     _add_ip_aliases(config_root, fw_data.ip_alias)
+
+    # for policy in
+    # new_rule = ET.SubElement(config_root.find('filter'), 'rule')
+    # ET.SubElement(new_rule, 'type').text =
 
     with open('config_test.xml', 'w') as f:
         f.write(pretty_xml(config_root))
