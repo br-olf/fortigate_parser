@@ -2,7 +2,7 @@ import logging
 import re
 from ipaddress import IPv4Network, IPv4Address, summarize_address_range
 
-from lark import Lark
+from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
     FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange
@@ -31,27 +31,9 @@ def to_cname(name) -> str:
             return c2
 
 
-# noinspection PyUnresolvedReferences
-def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
-    """Parses a fortigate configuration using LARK and extracts firewall specific date as well as DHCP configurations
+def _extraction_stage_1(parsed_conf: Tree):
+    """Extract relevant configuration pieces"""
 
-    :param fortigate_config The raw configuraiton file contents to parse
-    :param fortigate_lark_grammar LARK grammar to parse fortigate configurations
-    :returns extracted data as JSON serialized FwData class
-    """
-
-    parser = Lark(fortigate_lark_grammar,
-                  parser="lalr",
-                  propagate_positions=True,
-                  start="root",
-                  debug=True)
-
-    parsed_conf = parser.parse(fortigate_config)
-    logging.info('Fortigate configuration parsed')
-
-    #######################################################################################
-    # Extract relevant configuration pieces
-    #######################################################################################
     logging.info('Extraction of relevant fortigate configurations started')
     firewall_raw = {}
     system_raw = {}
@@ -65,10 +47,15 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
 
         if config_branch[0] == 'system':
             if config_branch[1] == 'dhcp' and config_branch[2] == 'server':
-                if 'dhcp_server' not in firewall_raw.keys():
+                if 'dhcp_server' not in system_raw.keys():
                     system_raw['dhcp_server'] = config.children
                 else:
                     logging.error('config "system dhcp server" should only be present once')
+            if config_branch[1] == 'interface':
+                if 'interface' not in system_raw.keys():
+                    system_raw['interface'] = config.children
+                else:
+                    logging.error('config "system interface" should only be present once')
 
         if config_branch[0] == 'firewall':
             if config_branch[1] == 'address':
@@ -112,9 +99,14 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
                 else:
                     logging.error('config "firewall service custom" should only be present once')
 
-    #######################################################################################
-    # Convert useful information to dataclasses
-    #######################################################################################
+    logging.info('Extraction of relevant fortigate configurations finished')
+    return firewall_raw, system_raw
+
+
+# noinspection PyUnresolvedReferences,DuplicatedCode
+def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
+    """Converts useful information to dataclasses"""
+
     fw_data = FgData()
 
     logging.info('Extraction of "config firewall address" started')
@@ -650,6 +642,46 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     logging.info('Extraction of "config system dhcp server" finished')
 
     #######################################################################################
+    # logging.info('Extraction of "config system interface" started')
+    # TODO:
+    # if 'interface' in system_raw.keys():
+    #     for entry in system_raw['interface'][1:]:
+    #         lease_time = None
+    #         dns_server = []
+    #         domain = None
+    #         netmask = None
+    #         gateway = None
+    #         ip_range_start = None
+    #         ip_range_end = None
+    #         interface = None
+    #         for cmd in entry.children[1:]:
+    #
+    #
+    # logging.info('Extraction of "config system interface" finished')
+
+    return fw_data
+
+
+def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
+    """Parses a fortigate configuration using LARK and extracts firewall specific date as well as DHCP configurations
+
+    :param fortigate_config The raw configuraiton file contents to parse
+    :param fortigate_lark_grammar LARK grammar to parse fortigate configurations
+    :returns extracted data as JSON serialized FwData class
+    """
+
+    parser = Lark(fortigate_lark_grammar,
+                  parser="lalr",
+                  propagate_positions=True,
+                  start="root",
+                  debug=True)
+
+    parsed_conf = parser.parse(fortigate_config)
+    logging.info('Fortigate configuration parsed')
+
+    firewall_raw, system_raw = _extraction_stage_1(parsed_conf)
+    fw_data = _extraction_stage_2(firewall_raw, system_raw)
+
     logging.info('Serializing extracted data')
     s = FgDataSchema()
     serialized_data = s.dumps(fw_data)
