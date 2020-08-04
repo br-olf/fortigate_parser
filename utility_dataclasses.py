@@ -1,8 +1,22 @@
 from dataclasses import dataclass, field as dc_field
-from ipaddress import IPv4Network, IPv4Address
+from ipaddress import IPv4Network, IPv4Address, IPv4Interface
 from typing import Optional, List
 
 from marshmallow import Schema, fields as mm_fields, post_load, ValidationError
+
+
+class IPv4InterfaceSchema(mm_fields.Field):
+    def _deserialize(self, value, *args, **kwargs):
+        try:
+            return IPv4Interface(value)
+        except Exception as e:
+            raise ValidationError("Not a valid IPv4Interface.") from e
+
+    def _serialize(self, value, *args, **kwargs):
+        if isinstance(value, IPv4Interface):
+            return value.exploded
+        else:
+            return value
 
 
 class IPv4NetworkSchema(mm_fields.Field):
@@ -31,6 +45,47 @@ class IPv4AddressSchema(mm_fields.Field):
             return value.exploded
         else:
             return value
+
+
+@dataclass
+class FgInterface:
+    name: str
+    interface_type: str
+    comment: str
+    interface_ip: Optional[IPv4Interface]
+    allowaccess: List[str]
+    vlanid: Optional[int]
+    parent_interface: Optional[str]
+    secondary_interface_ip: Optional[IPv4Interface]
+    secondary_allowaccess: List[str]
+    dhcp_relay: Optional[IPv4Address]
+    snmp_index: Optional[int]
+    up: bool
+    member_interfaces: List[str]
+    vlanforward: bool
+
+class FgInterfaceSchema(Schema):
+    name = mm_fields.String(required=True)
+    interface_type = mm_fields.String(required=True)
+    comment = mm_fields.String(required=True)
+    interface_ip = IPv4InterfaceSchema(allow_none=True)
+    allowaccess = mm_fields.List(mm_fields.String, required=True)
+    vlanid = mm_fields.Integer(allow_none=True)
+    parent_interface = mm_fields.String(allow_none=True)
+    secondary_interface_ip = IPv4InterfaceSchema(allow_none=True)
+    secondary_allowaccess = mm_fields.List(mm_fields.String, required=True)
+    dhcp_relay = IPv4AddressSchema(allow_none=True)
+    snmp_index = mm_fields.Integer(allow_none=True)
+    up = mm_fields.Boolean(required=True)
+    member_interfaces = mm_fields.List(mm_fields.String, required=True)
+    vlanforward = mm_fields.Boolean(required=True)
+
+    @post_load
+    def make_object(self, data, **kwargs):
+        return FgInterface(data['name'], data['interface_type'], data['comment'],
+                           data['interface_ip'], data['allowaccess'], data['vlanid'], data['parent_interface'],
+                           data['secondary_interface_ip'], data['secondary_allowaccess'], data['dhcp_relay'],
+                           data['snmp_index'], data['up'], data['member_interfaces'], data['vlanforward'])
 
 
 @dataclass
@@ -247,6 +302,7 @@ class FgData:
     service: List[FgService] = dc_field(default_factory=list)
     service_group: List[FgServiceGroup] = dc_field(default_factory=list)
     service_category: List[FgServiceCategory] = dc_field(default_factory=list)
+    interface: List[FgInterface] = dc_field(default_factory=list)
 
 
 class FgDataSchema(Schema):
@@ -258,8 +314,10 @@ class FgDataSchema(Schema):
     service = mm_fields.List(mm_fields.Nested(FgServiceSchema), required=True)
     service_group = mm_fields.List(mm_fields.Nested(FgServiceGroupSchema), required=True)
     service_category = mm_fields.List(mm_fields.Nested(FgServiceCategorySchema), required=True)
+    interface = mm_fields.List(mm_fields.Nested(FgInterfaceSchema), required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
         return FgData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
-                      data['policy'], data['service'], data['service_group'], data['service_category'])
+                      data['policy'], data['service'], data['service_group'], data['service_category'],
+                      data['interface'])

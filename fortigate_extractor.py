@@ -1,11 +1,11 @@
 import logging
 import re
-from ipaddress import IPv4Network, IPv4Address, summarize_address_range
+from ipaddress import IPv4Network, IPv4Address, IPv4Interface, summarize_address_range
 
 from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
-    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange
+    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -151,7 +151,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                  str(cmd.children[0]), '\n  value:',
                                  str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
-                    raise RuntimeError("Expected 'set' command!")
+                    raise RuntimeError('line ' + str(cmd.line) + ": Expected 'set' command!")
             if not ip:
                 ip = None
             if ip is None and fqdn is None:
@@ -187,9 +187,9 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                  str(cmd.children[0]), '\n  value:',
                                  str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
-                    raise RuntimeError("Expected 'set' command!")
+                    raise RuntimeError('line ' + str(cmd.line) + ": Expected 'set' command!")
             if not address_keys:
-                raise RuntimeError("Incompletely parsed record")
+                raise RuntimeError('line ' + str(entry.line) + ": Incompletely parsed record")
             fw_data.net_alias_group.append(FgNetAliasGroup(str(name), str(comment), address_keys))
     else:
         logging.critical('Could not find critical important section \'config firewall addrgrp\'')
@@ -228,9 +228,9 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                  str(cmd.children[0]), '\n  value:',
                                  str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
-                    raise RuntimeError("Expected 'set' command!")
+                    raise RuntimeError('line ' + str(cmd.line) + ": Expected 'set' command!")
             if ip is None:
-                raise RuntimeError("Incompletely parsed record")
+                raise RuntimeError('line ' + str(entry.line) + ":Incompletely parsed record")
             fw_data.ip_alias.append(FgIPAlias(str(name), str(comment), ip))
     else:
         logging.warning('Could not find section \'config firewall ippool\'')
@@ -271,24 +271,24 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                         if src_interface is None:
                             src_interface = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'dstintf':
                         if dst_interface is None:
                             dst_interface = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'srcaddr':
                         if not src_alias_list:
                             for alias in cmd.children[1].children:
                                 src_alias_list.append(str(alias))
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'dstaddr':
                         if not dst_alias_list:
                             for alias in cmd.children[1].children:
                                 dst_alias_list.append(str(alias))
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'natip':
                         if nat_ip is None:
                             if len(cmd.children[1].children) == 2:
@@ -298,12 +298,12 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                 # case subnet
                                 nat_ip = IPv4Network(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'action':
                         if action is None:
                             action = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'send-deny-packet':
                         if action is None:
                             if str(cmd.children[1].children[0]) == 'enable':
@@ -311,18 +311,18 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                             else:
                                 raise RuntimeError('Encountered unexpected value')
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'service':
                         if not service:
                             for s in cmd.children[1].children:
                                 service.append(str(s))
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'global-label':
                         if label is None:
                             label = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'logtraffic':
                         log_traffic = str(cmd.children[1].children[0])
                     elif cmd.children[0] == 'nat':
@@ -333,7 +333,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                             else:
                                 nat = True
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'ippool':
                         if ippool is False:
                             if not str(cmd.children[1].children[0]) == 'enable':
@@ -343,7 +343,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                             else:
                                 ippool = True
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'utm-status':
                         if utm_status is False:
                             if not str(cmd.children[1].children[0]) == 'enable':
@@ -352,32 +352,31 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                             else:
                                 utm_status = True
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'poolname':
                         if poolname is None:
                             poolname = to_cname(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'voip-profile':
                         if voip_profile is None:
                             voip_profile = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'session-ttl':
                         if session_ttl is None:
                             session_ttl = int(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     else:
                         if cmd.children[0] != 'uuid' and cmd.children[0] != 'schedule' \
                                 and cmd.children[0] != 'logtraffic-start':
-                            # noinspection PyUnresolvedReferences
                             logging.warning(' '.join(
                                 ['line', str(cmd.line) + ': NOT EVALUATED: config firewall policy:\n  option:',
                                  str(cmd.children[0]), '\n  value:',
                                  str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
-                    raise RuntimeError("Expected 'set' command!")
+                    raise RuntimeError('line ' + str(cmd.line) + ": Expected 'set' command!")
             if skip:
                 continue
             if src_interface is None:
@@ -429,11 +428,11 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
         for entry in firewall_raw['service_category'][1:]:
             name = to_cname(entry.children[0])
             if len(entry.children[1:]) != 1:
-                raise RuntimeError('Unexpected number of commands')
+                raise RuntimeError("line" + str(entry.line) + ': Unexpected number of commands')
             if entry.children[1].data != 'subcommand_field_set':
-                raise RuntimeError('Unexpected type of command')
+                raise RuntimeError("line" + str(entry.line) + ': Unexpected type of command')
             if entry.children[1].children[0] != 'comment':
-                raise RuntimeError('Unexpected set target')
+                raise RuntimeError("line" + str(entry.line) + ': Unexpected set target')
             comment = str(entry.children[1].children[1].children[0]).strip('"')
             fw_data.service_category.append(FgServiceCategory(str(name), str(comment), []))
     else:
@@ -458,7 +457,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'category':
                         if category is None:
-                            category = str(cmd.children[1].children[0])
+                            category = to_cname(cmd.children[1].children[0])
                             found = False
                             for cat in fw_data.service_category:
                                 if cat.name == category:
@@ -468,24 +467,24 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                             if not found:
                                 logging.warning('category ' + category + ' could not be found in fw_service_category')
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'comment':
                         comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'protocol':
                         if protocol is None:
                             protocol = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'icmptype':
                         if icmp_type is None:
                             icmp_type = int(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'session-ttl':
                         if session_ttl is None:
                             session_ttl = int(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'tcp-portrange':
                         if tcp_range is None:
                             tmp = str(cmd.children[1].children[0]).split(':')
@@ -504,7 +503,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                 else:
                                     tcp_range = PortRange(int(tmp[0]), int(tmp[0]))
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'udp-portrange':
                         if udp_range is None:
                             tmp = str(cmd.children[1].children[0]).split(':')
@@ -522,7 +521,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                 else:
                                     udp_range = PortRange(int(tmp[0]), int(tmp[0]))
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     else:
                         if cmd.children[0] != 'color' and cmd.children[0] != 'visibility':
                             logging.warning('line', str(cmd.line) + ': NOT EVALUATED: config firewall service custom:',
@@ -552,7 +551,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                         for val in cmd.children[1].children:
                             members.append(str(val))
                     else:
-                        raise RuntimeError("Encountered conflicting set command")
+                        raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                 else:
                     if cmd.children[0] != 'color':
                         logging.warning(' '.join(
@@ -585,22 +584,22 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                         if gateway is None:
                             gateway = IPv4Address(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'netmask':
                         if netmask is None:
                             netmask = IPv4Address(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'domain':
                         if domain is None:
                             domain = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'interface':
                         if interface is None:
                             interface = str(cmd.children[1].children[0])
                         else:
-                            raise RuntimeError("Encountered conflicting set command")
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif re_dns_server.match(cmd.children[0]):
                         dns_server.append(IPv4Address(cmd.children[1].children[0]))
                     else:
@@ -622,18 +621,20 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                                 if ip_range_start is None:
                                     ip_range_start = IPv4Address(scmd.children[1].children[0])
                                 else:
-                                    logging.error(
-                                        'Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(entry))
+                                    logging.error('line ' + str(scmd.line) +
+                                                  ': Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(
+                                        entry))
                             elif scmd.children[0] == 'end-ip':
                                 if ip_range_end is None:
                                     ip_range_end = IPv4Address(scmd.children[1].children[0])
                                 else:
-                                    logging.error(
-                                        'Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(entry))
+                                    logging.error('line ' + str(scmd.line) +
+                                                  ': Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(
+                                        entry))
                     else:
                         logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
                 else:
-                    raise RuntimeError("Expected 'set' command!")
+                    raise RuntimeError("Expected 'set' or 'config' command!")
             fw_data.dhcp_server.append(
                 FgDhcpServer(lease_time, dns_server, domain, netmask, gateway, ip_range_start, ip_range_end, interface))
     else:
@@ -642,22 +643,150 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
     logging.info('Extraction of "config system dhcp server" finished')
 
     #######################################################################################
-    # logging.info('Extraction of "config system interface" started')
-    # TODO:
-    # if 'interface' in system_raw.keys():
-    #     for entry in system_raw['interface'][1:]:
-    #         lease_time = None
-    #         dns_server = []
-    #         domain = None
-    #         netmask = None
-    #         gateway = None
-    #         ip_range_start = None
-    #         ip_range_end = None
-    #         interface = None
-    #         for cmd in entry.children[1:]:
-    #
-    #
-    # logging.info('Extraction of "config system interface" finished')
+    logging.info('Extraction of "config system interface" started')
+
+    if 'interface' in system_raw.keys():
+        for entry in system_raw['interface'][1:]:
+            name = to_cname(entry.children[0])
+            interface_type = None
+            comment = ''
+            interface_ip = None
+            allowaccess = []
+            vlanid = None
+            parent_interface = None
+            secondary_interface_ip = None
+            secondary_allowaccess = []
+            dhcp_relay = None
+            dhcp_enabled = False
+            snmp_index = None
+            secondary_enabled = False
+            up = True
+            member_interfaces = []
+            vlanforward = False
+
+            for cmd in entry.children[1:]:
+                if cmd.data == 'subcommand_field_set':
+                    if cmd.children[0] == 'description':
+                        if comment != '':
+                            comment += '\n'
+                        comment += 'description: ' + str(cmd.children[1].children[0]).strip('"')
+                    elif cmd.children[0] == 'alias':
+                        if comment != '':
+                            comment += '\n'
+                        comment += 'alias: ' + str(cmd.children[1].children[0]).strip('"')
+                    elif cmd.children[0] == 'ip':
+                        if interface_ip is None:
+                            interface_ip = IPv4Interface('/'.join(cmd.children[1].children))
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'type':
+                        if interface_type is None:
+                            interface_type = str(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'secondary-IP':
+                        if not secondary_enabled:
+                            if str(cmd.children[1].children[0]) == 'enable':
+                                secondary_enabled = True
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'vlanforward':
+                        if not vlanforward:
+                            if str(cmd.children[1].children[0]) == 'enable':
+                                vlanforward = True
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dhcp-relay-service':
+                        if not dhcp_enabled:
+                            if str(cmd.children[1].children[0]) == 'enable':
+                                dhcp_enabled = True
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dhcp-relay-ip':
+                        if dhcp_relay is None:
+                            dhcp_relay = IPv4Address(str(cmd.children[1].children[0]).strip('\'"'))
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'status':
+                        if str(cmd.children[1].children[0]) == 'down':
+                            up = False
+                        elif str(cmd.children[1].children[0]) == 'up':
+                            up = True
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered invalid set command")
+                    elif cmd.children[0] == 'vlanid':
+                        if vlanid is None:
+                            vlanid = int(cmd.children[1].children[0])
+                            interface_type = 'vlan'
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'snmp-index':
+                        if snmp_index is None:
+                            snmp_index = int(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'member':
+                        if not member_interfaces:
+                            for member in cmd.children[1].children:
+                                member_interfaces.append(to_cname(member))
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'allowaccess':
+                        if not allowaccess:
+                            allowaccess = [str(x) for x in cmd.children[1].children]
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'interface':
+                        if parent_interface is None:
+                            parent_interface = to_cname(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    else:
+                        if cmd.children[0] != 'vdom' and cmd.children[0] != 'speed':
+                            logging.warning(' '.join(
+                                ['line', str(cmd.line) + ': NOT EVALUATED: config system interface:\n  option:',
+                                 str(cmd.children[0]), '\n  value:',
+                                 str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
+                elif cmd.data == 'subcommand_config':
+
+                    if cmd.children[0].children[0].children[0] == 'secondaryip':
+                        # Unnecessary because only one subentry expected
+                        # for sentry in cmd.children[0].children[1:]:
+                        #     for scmd in sentry.children[1:]:
+                        #         print(scmd.pretty())
+
+                        for scmd in cmd.children[0].children[1].children[1:]:
+                            if scmd.children[0] == 'ip':
+                                if secondary_interface_ip is None:
+                                    secondary_interface_ip = IPv4Interface('/'.join(scmd.children[1].children))
+                                else:
+                                    logging.error('line ' + str(scmd.line) +
+                                                  ': Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(
+                                        entry))
+                            elif scmd.children[0] == 'allowaccess':
+                                if not secondary_allowaccess:
+                                    secondary_allowaccess = [str(x) for x in scmd.children[1].children]
+                                else:
+                                    logging.error('line ' + str(scmd.line) +
+                                                  ': Parsing conflict in nested "config" statement\n  CONTEXT: ' + str(
+                                        entry))
+                    else:
+                        logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
+                else:
+                    raise RuntimeError("Expected 'set' or 'config' command!")
+            if not secondary_enabled:
+                secondary_allowaccess = []
+                secondary_interface_ip = None
+            if not dhcp_enabled:
+                dhcp_relay = None
+            fw_data.interface.append(
+                FgInterface(name, interface_type, comment, interface_ip, allowaccess, vlanid,
+                            parent_interface, secondary_interface_ip, secondary_allowaccess, dhcp_relay, snmp_index,
+                            up, member_interfaces, vlanforward))
+    else:
+        logging.warning('Could not find section \'config system interface\'')
+
+    logging.info('Extraction of "config system interface" finished')
 
     return fw_data
 
