@@ -269,24 +269,24 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
                         comment = str(cmd.children[1].children[0]).strip('"')
                     elif cmd.children[0] == 'srcintf':
                         if src_interface is None:
-                            src_interface = str(cmd.children[1].children[0])
+                            src_interface = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'dstintf':
                         if dst_interface is None:
-                            dst_interface = str(cmd.children[1].children[0])
+                            dst_interface = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'srcaddr':
                         if not src_alias_list:
                             for alias in cmd.children[1].children:
-                                src_alias_list.append(str(alias))
+                                src_alias_list.append(to_cname(alias))
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'dstaddr':
                         if not dst_alias_list:
                             for alias in cmd.children[1].children:
-                                dst_alias_list.append(str(alias))
+                                dst_alias_list.append(to_cname(alias))
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     elif cmd.children[0] == 'natip':
@@ -791,6 +791,44 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
     return fw_data
 
 
+def _validity_check(fg_data: FgData):
+    logging.info('Consistency check of policy data started')
+
+    def find_alias(alias, data):
+        for i in data.net_alias_group:
+            if i.name == alias:
+                return True
+        for i in data.net_alias:
+            if i.name == alias:
+                return True
+        for i in data.ip_alias:
+            if i.name == alias:
+                return True
+        return False
+
+    def find_interface(intf, data):
+        for i in data.interface:
+            if i.name == intf:
+                return True
+        return False
+
+    for p in fg_data.policy:
+        if not find_interface(p.src_interface, fg_data):
+            logging.error('src interface', p.src_interface, 'not found in fg_data.interface')
+        if not find_interface(p.dst_interface, fg_data):
+            logging.error('dst interface', p.dst_interface, 'not found in fg_data.interface')
+        for a in p.src_alias_list:
+            if not find_alias(a, fg_data):
+                logging.error('src address alias (srcaddr) ' + a +
+                              ' not found in fg_data.net_alias or fg_data.net_alias_group')
+        for a in p.dst_alias_list:
+            if not find_alias(a, fg_data):
+                logging.error('dst address alias (dstaddr) ' + a +
+                              ' not found in fg_data.net_alias or fg_data.net_alias_group')
+
+    logging.info('Consistency check of policy data finished')
+
+
 def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     """Parses a fortigate configuration using LARK and extracts firewall specific date as well as DHCP configurations
 
@@ -809,18 +847,20 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     logging.info('Fortigate configuration parsed')
 
     firewall_raw, system_raw = _extraction_stage_1(parsed_conf)
-    fw_data = _extraction_stage_2(firewall_raw, system_raw)
+    fg_data = _extraction_stage_2(firewall_raw, system_raw)
+
+    _validity_check(fg_data)  # TODO: config firewall vip
 
     logging.info('Serializing extracted data')
     s = FgDataSchema()
-    serialized_data = s.dumps(fw_data)
+    serialized_data = s.dumps(fg_data)
 
     logging.info('Testing data deserialization')
     deserialized_data = s.loads(serialized_data)
 
-    if deserialized_data != fw_data:
+    if deserialized_data != fg_data:
         logging.critical('Could not verify serialized data')
-        assert deserialized_data == fw_data
+        assert deserialized_data == fg_data
     return serialized_data
 
 
