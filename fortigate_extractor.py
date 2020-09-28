@@ -5,7 +5,7 @@ from ipaddress import IPv4Network, IPv4Address, IPv4Interface, summarize_address
 from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
-    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa
+    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa, FgVpnCertLocal
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -142,8 +142,50 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
 
     fw_data = FgData()
 
-    logging.info('Extraction of "config vpn certificate ca" started')
+    logging.info('Extraction of "config vpn certificate local" started')
 
+    if 'certificate_local' in vpn_raw.keys():
+        for entry in vpn_raw['certificate_local'][1:]:
+            name = to_cname(entry.children[0])
+            comment = ''
+            cert = None
+            private_key = None
+            password = None
+
+            for cmd in entry.children[1:]:
+                if cmd.data == 'subcommand_field_set':
+                    if cmd.children[0] == 'comments':
+                        comment = str(cmd.children[1].children[0]).strip('"')
+                    elif cmd.children[0] == 'certificate':
+                        if cert is None:
+                            cert = str(cmd.children[1].children[0]).strip('"')
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'private-key':
+                        if private_key is None:
+                            private_key = str(cmd.children[1].children[0]).strip('"')
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'password':
+                        if password is None:
+                            password = str(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    else:
+                        logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
+
+                else:
+                    raise RuntimeError("Expected 'set' or 'config' command!")
+
+            if cert is None or private_key is None or password is None:
+                raise RuntimeError('line ' + str(entry.line) + ":Incompletely parsed record")
+            fw_data.vpn_cert_local.append(FgVpnCertLocal(name, comment, cert, private_key, password))
+    else:
+        logging.warning('Could not find section \'config vpn certificate local\'')
+
+    logging.info('Extraction of "config vpn certificate local" finished')
+
+    #######################################################################################
     if 'certificate_ca' in vpn_raw.keys():
         for entry in vpn_raw['certificate_ca'][1:]:
             name = to_cname(entry.children[0])
@@ -161,12 +203,13 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                 else:
                     raise RuntimeError("Expected 'set' or 'config' command!")
 
+            if cert is None:
+                raise RuntimeError('line ' + str(entry.line) + ":Incompletely parsed record")
             fw_data.vpn_cert_ca.append(FgVpnCertCa(name, cert))
     else:
         logging.warning('Could not find section \'config vpn certificate ca\'')
 
     logging.info('Extraction of "config vpn certificate ca" finished')
-
 
     #######################################################################################
     logging.info('Extraction of "config firewall address" started')
