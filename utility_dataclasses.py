@@ -293,6 +293,21 @@ class FgDhcpServerSchema(Schema):
 
 
 @dataclass
+class FgVpnCertCa:
+    name: str
+    cert: str
+
+
+class FgVpnCertCaSchema(Schema):
+    name = mm_fields.String(required=True)
+    cert = mm_fields.String(required=True)
+
+    @post_load
+    def make_object(self, data, **kwargs):
+        return FgVpnCertCa(data['name'], data['cert'])
+
+
+@dataclass
 class FgData:
     dhcp_server: List[FgDhcpServer] = dc_field(default_factory=list)
     net_alias: List[FgNetAlias] = dc_field(default_factory=list)
@@ -303,6 +318,7 @@ class FgData:
     service_group: List[FgServiceGroup] = dc_field(default_factory=list)
     service_category: List[FgServiceCategory] = dc_field(default_factory=list)
     interface: List[FgInterface] = dc_field(default_factory=list)
+    vpn_cert_ca: List[FgVpnCertCa] = dc_field(default_factory=list)
 
 
 class FgDataSchema(Schema):
@@ -315,9 +331,10 @@ class FgDataSchema(Schema):
     service_group = mm_fields.List(mm_fields.Nested(FgServiceGroupSchema), required=True)
     service_category = mm_fields.List(mm_fields.Nested(FgServiceCategorySchema), required=True)
     interface = mm_fields.List(mm_fields.Nested(FgInterfaceSchema), required=True)
+    vpn_cert_ca = mm_fields.List(mm_fields.Nested(FgVpnCertCaSchema), required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
         return FgData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
                       data['policy'], data['service'], data['service_group'], data['service_category'],
-                      data['interface'])
+                      data['interface'], data['vpn_cert_ca'])

@@ -5,7 +5,7 @@ from ipaddress import IPv4Network, IPv4Address, IPv4Interface, summarize_address
 from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
-    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface
+    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -137,11 +137,38 @@ def _extraction_stage_1(parsed_conf: Tree):
 
 
 # noinspection PyUnresolvedReferences,DuplicatedCode
-def _extraction_stage_2(firewall_raw: dict, system_raw: dict) -> FgData:
+def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> FgData:
     """Converts useful information to dataclasses"""
 
     fw_data = FgData()
 
+    logging.info('Extraction of "config vpn certificate ca" started')
+
+    if 'certificate_ca' in vpn_raw.keys():
+        for entry in vpn_raw['certificate_ca'][1:]:
+            name = to_cname(entry.children[0])
+            cert = None
+
+            for cmd in entry.children[1:]:
+                if cmd.data == 'subcommand_field_set':
+                    if cmd.children[0] == 'ca':
+                        if cert is None:
+                            cert = str(cmd.children[1].children[0]).strip('"')
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    else:
+                        logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
+                else:
+                    raise RuntimeError("Expected 'set' or 'config' command!")
+
+            fw_data.vpn_cert_ca.append(FgVpnCertCa(name, cert))
+    else:
+        logging.warning('Could not find section \'config vpn certificate ca\'')
+
+    logging.info('Extraction of "config vpn certificate ca" finished')
+
+
+    #######################################################################################
     logging.info('Extraction of "config firewall address" started')
     if 'address' in firewall_raw.keys():
         for entry in firewall_raw['address'][1:]:
@@ -880,7 +907,8 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     logging.info('Fortigate configuration parsed')
 
     firewall_raw, system_raw, vpn_raw = _extraction_stage_1(parsed_conf)
-    fg_data = _extraction_stage_2(firewall_raw, system_raw)
+
+    fg_data = _extraction_stage_2(firewall_raw, system_raw, vpn_raw)
 
     _validity_check(fg_data)  # TODO: config firewall vip
 
