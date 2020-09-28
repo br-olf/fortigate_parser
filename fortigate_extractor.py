@@ -37,6 +37,7 @@ def _extraction_stage_1(parsed_conf: Tree):
     logging.info('Extraction of relevant fortigate configurations started')
     firewall_raw = {}
     system_raw = {}
+    vpn_raw = {}
     for config in parsed_conf.children:
         if config.data == 'config':
             config_branch = config.children[0].children
@@ -99,8 +100,40 @@ def _extraction_stage_1(parsed_conf: Tree):
                 else:
                     logging.error('config "firewall service custom" should only be present once')
 
+        if config_branch[0] == 'vpn':
+            if config_branch[1] == 'ssl':
+                if 'ssl' not in vpn_raw.keys():
+                    vpn_raw['ssl'] = config.children
+                else:
+                    logging.error('config "vpn ssl" should only be present once')
+            elif config_branch[1] == 'certificate' and config_branch[2] == 'ca':
+                if 'certificate_ca' not in vpn_raw.keys():
+                    vpn_raw['certificate_ca'] = config.children
+                else:
+                    logging.error('config "vpn certificate ca" should only be present once')
+            elif config_branch[1] == 'certificate' and config_branch[2] == 'local':
+                if 'certificate_local' not in vpn_raw.keys():
+                    vpn_raw['certificate_local'] = config.children
+                else:
+                    logging.error('config "vpn certificate local" should only be present once')
+            elif config_branch[1] == 'ipsec' and config_branch[2] == 'phase1-interface':
+                if 'ipsec-phase1' not in vpn_raw.keys():
+                    vpn_raw['ipsec-phase1'] = config.children
+                else:
+                    logging.error('config "vpn ipsec phase1-interface" should only be present once')
+            elif config_branch[1] == 'ipsec' and config_branch[2] == 'phase2-interface':
+                if 'ipsec-phase2' not in vpn_raw.keys():
+                    vpn_raw['ipsec-phase2'] = config.children
+                else:
+                    logging.error('config "vpn ipsec phase2-interface" should only be present once')
+            elif config_branch[1] == 'ipsec' and config_branch[2] == 'forticlient':
+                if 'ipsec-forticlient' not in vpn_raw.keys():
+                    vpn_raw['ipsec-forticlient'] = config.children
+                else:
+                    logging.error('config "vpn ipsec forticlient" should only be present once')
+
     logging.info('Extraction of relevant fortigate configurations finished')
-    return firewall_raw, system_raw
+    return firewall_raw, system_raw, vpn_raw
 
 
 # noinspection PyUnresolvedReferences,DuplicatedCode
@@ -846,7 +879,7 @@ def parse_config(fortigate_config: str, fortigate_lark_grammar: str) -> str:
     parsed_conf = parser.parse(fortigate_config)
     logging.info('Fortigate configuration parsed')
 
-    firewall_raw, system_raw = _extraction_stage_1(parsed_conf)
+    firewall_raw, system_raw, vpn_raw = _extraction_stage_1(parsed_conf)
     fg_data = _extraction_stage_2(firewall_raw, system_raw)
 
     _validity_check(fg_data)  # TODO: config firewall vip
