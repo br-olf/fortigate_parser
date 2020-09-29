@@ -1,0 +1,7 @@
+.idea/
+venv/
+__pycache__/
+*.xml
+*.json
+*.pdf
+*.conf
