@@ -64,6 +64,7 @@ class FgInterface:
     member_interfaces: List[str]
     vlanforward: bool
 
+
 class FgInterfaceSchema(Schema):
     name = mm_fields.String(required=True)
     interface_type = mm_fields.String(required=True)
@@ -327,6 +328,61 @@ class FgVpnCertLocalSchema(Schema):
     def make_object(self, data, **kwargs):
         return FgVpnCertLocal(data['name'], data['comment'], data['cert'], data['private_key'], data['password'])
 
+
+@dataclass
+class FgIpsecCryptoParams:
+    encrypt: str
+    digest: str
+
+
+class FgIpsecCryptoParamsSchema(Schema):
+    encrypt = mm_fields.String(required=True)
+    digest = mm_fields.String(required=True)
+
+    @post_load
+    def make_object(self, data, **kwargs):
+        return FgIpsecCryptoParams(data['encrypt'], data['digest'])
+
+
+@dataclass
+class FgVpnIpsecPhase1:
+    name: str
+    comment: str
+    interface: str
+    dpd: bool  # Dead Peer Detection
+    nattraversal: bool
+    dhgrp: List[int]
+    c_proposal: List[FgIpsecCryptoParams]
+    remote_gw: Optional[IPv4Address]  # authmethod == psk
+    psksecret: str
+    keylife: int
+    connect_type: str
+    xauthtype: Optional[str]
+    authusrgrp: Optional[str]
+
+
+class FgVpnIpsecPhase1Schema(Schema):
+    name = mm_fields.String(required=True)
+    comment = mm_fields.String(required=True)
+    interface = mm_fields.String(required=True)
+    dpd = mm_fields.Boolean(required=True)
+    nattraversal = mm_fields.Boolean(required=True)
+    dhgrp = mm_fields.List(mm_fields.Integer, required=True)
+    c_proposal = mm_fields.List(mm_fields.Nested(FgIpsecCryptoParamsSchema), required=True)
+    remote_gw = IPv4AddressSchema(allow_none=True)
+    psksecret = mm_fields.String(required=True)
+    keylife = mm_fields.Integer(required=True)
+    connect_type = mm_fields.String(required=True)
+    xauthtype = mm_fields.String(allow_none=True)
+    authusrgrp = mm_fields.String(allow_none=True)
+
+    @post_load
+    def make_object(self, data, **kwargs):
+        return FgVpnIpsecPhase1(data['name'], data['comment'], data['interface'], data['dpd'], data['nattraversal'],
+                                data['dhgrp'], data['c_proposal'], data['remote_gw'], data['psksecret'],
+                                data['keylife'], data['connect_type'], data['xauthtype'], data['authusrgrp'])
+
+
 @dataclass
 class FgData:
     dhcp_server: List[FgDhcpServer] = dc_field(default_factory=list)
@@ -340,6 +396,7 @@ class FgData:
     interface: List[FgInterface] = dc_field(default_factory=list)
     vpn_cert_ca: List[FgVpnCertCa] = dc_field(default_factory=list)
     vpn_cert_local: List[FgVpnCertLocal] = dc_field(default_factory=list)
+    vpn_ipsec_phase_1: List[FgVpnIpsecPhase1] = dc_field(default_factory=list)
 
 
 class FgDataSchema(Schema):
@@ -354,9 +411,10 @@ class FgDataSchema(Schema):
     interface = mm_fields.List(mm_fields.Nested(FgInterfaceSchema), required=True)
     vpn_cert_ca = mm_fields.List(mm_fields.Nested(FgVpnCertCaSchema), required=True)
     vpn_cert_local = mm_fields.List(mm_fields.Nested(FgVpnCertLocalSchema), required=True)
+    vpn_ipsec_phase_1 = mm_fields.List(mm_fields.Nested(FgVpnIpsecPhase1Schema), required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
         return FgData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
                       data['policy'], data['service'], data['service_group'], data['service_category'],
-                      data['interface'], data['vpn_cert_ca'], data['vpn_cert_local'],)
+                      data['interface'], data['vpn_cert_ca'], data['vpn_cert_local'], data['vpn_ipsec_phase_1'])

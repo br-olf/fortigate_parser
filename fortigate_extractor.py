@@ -5,7 +5,8 @@ from ipaddress import IPv4Network, IPv4Address, IPv4Interface, summarize_address
 from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
-    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa, FgVpnCertLocal
+    FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa, FgVpnCertLocal, \
+    FgVpnIpsecPhase1, FgIpsecCryptoParams
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -101,12 +102,7 @@ def _extraction_stage_1(parsed_conf: Tree):
                     logging.error('config "firewall service custom" should only be present once')
 
         if config_branch[0] == 'vpn':
-            if config_branch[1] == 'ssl':
-                if 'ssl' not in vpn_raw.keys():
-                    vpn_raw['ssl'] = config.children
-                else:
-                    logging.error('config "vpn ssl" should only be present once')
-            elif config_branch[1] == 'certificate' and config_branch[2] == 'ca':
+            if config_branch[1] == 'certificate' and config_branch[2] == 'ca':
                 if 'certificate_ca' not in vpn_raw.keys():
                     vpn_raw['certificate_ca'] = config.children
                 else:
@@ -117,20 +113,25 @@ def _extraction_stage_1(parsed_conf: Tree):
                 else:
                     logging.error('config "vpn certificate local" should only be present once')
             elif config_branch[1] == 'ipsec' and config_branch[2] == 'phase1-interface':
-                if 'ipsec-phase1' not in vpn_raw.keys():
-                    vpn_raw['ipsec-phase1'] = config.children
+                if 'ipsec_phase1' not in vpn_raw.keys():
+                    vpn_raw['ipsec_phase1'] = config.children
                 else:
                     logging.error('config "vpn ipsec phase1-interface" should only be present once')
             elif config_branch[1] == 'ipsec' and config_branch[2] == 'phase2-interface':
-                if 'ipsec-phase2' not in vpn_raw.keys():
-                    vpn_raw['ipsec-phase2'] = config.children
+                if 'ipsec_phase2' not in vpn_raw.keys():
+                    vpn_raw['ipsec_phase2'] = config.children
                 else:
                     logging.error('config "vpn ipsec phase2-interface" should only be present once')
             elif config_branch[1] == 'ipsec' and config_branch[2] == 'forticlient':
-                if 'ipsec-forticlient' not in vpn_raw.keys():
-                    vpn_raw['ipsec-forticlient'] = config.children
+                if 'ipsec_forticlient' not in vpn_raw.keys():
+                    vpn_raw['ipsec_forticlient'] = config.children
                 else:
                     logging.error('config "vpn ipsec forticlient" should only be present once')
+            elif config_branch[1] == 'ssl' and config_branch[2] == 'settings':
+                if 'ssl_settings' not in vpn_raw.keys():
+                    vpn_raw['ssl_settings'] = config.children
+                else:
+                    logging.error('config "vpn ssl settings" should only be present once')
 
     logging.info('Extraction of relevant fortigate configurations finished')
     return firewall_raw, system_raw, vpn_raw
@@ -142,6 +143,111 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
 
     fw_data = FgData()
 
+    logging.info('Extraction of "config vpn ipsec phase1-interface" started')
+
+    if 'ipsec_phase1' in vpn_raw.keys():
+        for entry in vpn_raw['ipsec_phase1'][1:]:
+            name = to_cname(entry.children[0])
+            comment = ''
+            interface = None
+            dpd = True
+            nattraversal = True
+            dhgrp = []
+            c_proposal = []
+            remote_gw = None
+            psksecret = None
+            keylife = 86400
+            connect_type = 'static'
+            xauthtype = None
+            authusrgrp = None
+
+            for cmd in entry.children[1:]:
+                if cmd.data == 'subcommand_field_set':
+                    if cmd.children[0] == 'comments':
+                        comment = str(cmd.children[1].children[0]).strip('"')
+                    elif cmd.children[0] == 'interface':
+                        if interface is None:
+                            interface = str(cmd.children[1].children[0]).strip('"')
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'psksecret':
+                        if psksecret is None:
+                            psksecret = str(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'keylife':
+                        keylife = int(cmd.children[1].children[0])
+                    elif cmd.children[0] == 'type':
+                        connect_type = str(cmd.children[1].children[0])
+                    elif cmd.children[0] == 'xauthtype':
+                        if xauthtype is None:
+                            xauthtype = str(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'authusrgrp':
+                        if authusrgrp is None:
+                            authusrgrp = str(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'remote-gw':
+                        if remote_gw is None:
+                            remote_gw = IPv4Address(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'proposal':
+                        if len(c_proposal) == 0:
+                            for n in cmd.children[1].children:
+                                e, d = str(n).split('-')
+                                c_proposal.append(FgIpsecCryptoParams(e, d))
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dhgrp':
+                        if len(dhgrp) == 0:
+                            for n in cmd.children[1].children:
+                                n_int = int(n)
+                                assert n_int > 0
+                                dhgrp.append(n_int)
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dpd':
+                        dpd_str = str(cmd.children[1].children[0])
+                        if dpd_str == 'disable':
+                            dpd = False
+                        elif dpd_str == 'enable':
+                            dpd = True
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ': Encountered unexpected value in "set dpd" "{}"'.format(dpd_str))
+                    elif cmd.children[0] == 'nattraversal':
+                        nattraversal_str = str(cmd.children[1].children[0])
+                        if nattraversal_str == 'disable':
+                            nattraversal = False
+                        elif nattraversal_str == 'enable':
+                            nattraversal = True
+                        else:
+                            raise RuntimeError('line ' + str(
+                                cmd.line) + ': Encountered unexpected value in "set dpd" "{}"'.format(nattraversal_str))
+                    else:
+                        if cmd.children[0] != 'keepalive':
+                            logging.warning(' '.join(
+                                ['line', str(cmd.line) + ': NOT EVALUATED: config vpn ipsec phase1-interface:\n  option:',
+                                 str(cmd.children[0]), '\n  value:',
+                                 str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
+                else:
+                    raise RuntimeError("Expected 'set' or 'config' command!")
+            assert 172800 > keylife > 120
+            # remote_gw is optional
+            if interface is None or dpd is None or nattraversal is None or psksecret is None \
+                    or len(dhgrp) == 0 or len(c_proposal) == 0:
+                raise RuntimeError('line ' + str(entry.line) + ":Incompletely parsed record")
+            fw_data.vpn_ipsec_phase_1.append(FgVpnIpsecPhase1(name, comment, interface, dpd, nattraversal, dhgrp,
+                                                              c_proposal, remote_gw, psksecret, keylife,
+                                                              connect_type, xauthtype, authusrgrp))
+    else:
+        logging.warning('Could not find section \'config vpn ipsec phase1-interface\'')
+
+    logging.info('Extraction of "config vpn ipsec phase1-interface" finished')
+
+    #######################################################################################
     logging.info('Extraction of "config vpn certificate local" started')
 
     if 'certificate_local' in vpn_raw.keys():
@@ -172,8 +278,11 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     else:
-                        logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
-
+                        if cmd.children[0] != 'TODO':
+                            logging.warning(' '.join(
+                                ['line', str(cmd.line) + ': NOT EVALUATED: config vpn certificate local:\n  option:',
+                                 str(cmd.children[0]), '\n  value:',
+                                 str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
                     raise RuntimeError("Expected 'set' or 'config' command!")
 
@@ -199,7 +308,11 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     else:
-                        logging.error('Unexpected entry in nested "config" statement\n  CONTEXT: ' + str(entry))
+                        if cmd.children[0] != 'TODO':
+                            logging.warning(' '.join(
+                                ['line', str(cmd.line) + ': NOT EVALUATED: config vpn certificate ca:\n  option:',
+                                 str(cmd.children[0]), '\n  value:',
+                                 str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
                 else:
                     raise RuntimeError("Expected 'set' or 'config' command!")
 
