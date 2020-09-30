@@ -376,11 +376,49 @@ class FgVpnIpsecPhase1Schema(Schema):
     xauthtype = mm_fields.String(allow_none=True)
     authusrgrp = mm_fields.String(allow_none=True)
 
+
+
     @post_load
     def make_object(self, data, **kwargs):
         return FgVpnIpsecPhase1(data['name'], data['comment'], data['interface'], data['dpd'], data['nattraversal'],
                                 data['dhgrp'], data['c_proposal'], data['remote_gw'], data['psksecret'],
                                 data['keylife'], data['connect_type'], data['xauthtype'], data['authusrgrp'])
+
+
+@dataclass
+class FgVpnIpsecPhase2:
+    name: str
+    phase1name: str
+    c_proposal: List[FgIpsecCryptoParams]
+    dhgrp: List[int]
+    keylife: int
+    src_addr_type: str
+    dst_addr_type: str
+    src_net: IPv4Network
+    dst_net: IPv4Network
+    src_ip: IPv4Address
+    dst_ip: IPv4Address
+
+
+class FgVpnIpsecPhase2Schema(Schema):
+    name = mm_fields.String(required=True)
+    phase1name = mm_fields.String(required=True)
+    c_proposal = mm_fields.List(mm_fields.Nested(FgIpsecCryptoParamsSchema), required=True)
+    dhgrp = mm_fields.List(mm_fields.Integer, required=True)
+    keylife = mm_fields.Integer(required=True)
+    src_addr_type = mm_fields.String(required=True)
+    dst_addr_type = mm_fields.String(required=True)
+    src_net = IPv4NetworkSchema(allow_none=True)
+    dst_net = IPv4NetworkSchema(allow_none=True)
+    src_ip = IPv4AddressSchema(allow_none=True)
+    dst_ip = IPv4AddressSchema(allow_none=True)
+
+    @post_load
+    def make_object(self, data, **kwargs):
+        return FgVpnIpsecPhase2(data['name'], data['phase1name'], data['c_proposal'], data['dhgrp'], data['keylife'],
+                                data['src_addr_type'], data['dst_addr_type'], data['src_net'], data['dst_net'],
+                                data['src_ip'], data['dst_ip'])
+
 
 
 @dataclass
@@ -397,6 +435,7 @@ class FgData:
     vpn_cert_ca: List[FgVpnCertCa] = dc_field(default_factory=list)
     vpn_cert_local: List[FgVpnCertLocal] = dc_field(default_factory=list)
     vpn_ipsec_phase_1: List[FgVpnIpsecPhase1] = dc_field(default_factory=list)
+    vpn_ipsec_phase_2: List[FgVpnIpsecPhase2] = dc_field(default_factory=list)
 
 
 class FgDataSchema(Schema):
@@ -412,9 +451,11 @@ class FgDataSchema(Schema):
     vpn_cert_ca = mm_fields.List(mm_fields.Nested(FgVpnCertCaSchema), required=True)
     vpn_cert_local = mm_fields.List(mm_fields.Nested(FgVpnCertLocalSchema), required=True)
     vpn_ipsec_phase_1 = mm_fields.List(mm_fields.Nested(FgVpnIpsecPhase1Schema), required=True)
+    vpn_ipsec_phase_2 = mm_fields.List(mm_fields.Nested(FgVpnIpsecPhase2Schema), required=True)
 
     @post_load
     def make_object(self, data, **kwargs):
         return FgData(data['dhcp_server'], data['net_alias'], data['net_alias_group'], data['ip_alias'],
                       data['policy'], data['service'], data['service_group'], data['service_category'],
-                      data['interface'], data['vpn_cert_ca'], data['vpn_cert_local'], data['vpn_ipsec_phase_1'])
+                      data['interface'], data['vpn_cert_ca'], data['vpn_cert_local'], data['vpn_ipsec_phase_1'],
+                      data['vpn_ipsec_phase_2'])

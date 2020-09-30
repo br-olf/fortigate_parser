@@ -6,7 +6,7 @@ from lark import Lark, Tree
 
 from utility_dataclasses import FgData, FgPolicy, FgService, FgServiceCategory, FgServiceGroup, FgDhcpServer, \
     FgNetAlias, FgNetAliasGroup, FgIPAlias, FgDataSchema, PortRange, FgInterface, FgVpnCertCa, FgVpnCertLocal, \
-    FgVpnIpsecPhase1, FgIpsecCryptoParams
+    FgVpnIpsecPhase1, FgIpsecCryptoParams, FgVpnIpsecPhase2
 
 _regex_cname = re.compile('^[a-zA-Z0-9_]+$')
 
@@ -143,6 +143,118 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
 
     fw_data = FgData()
 
+    logging.info('Extraction of "config vpn ipsec phase1-interface" started')
+
+    if 'ipsec_phase2' in vpn_raw.keys():
+        for entry in vpn_raw['ipsec_phase2'][1:]:
+            name = to_cname(entry.children[0])
+            phase1name = None
+            c_proposal = []
+            dst_addr_type = "net"
+            src_addr_type = "net"
+            dhgrp = []
+            keylife = 43200
+            src_net = None
+            dst_net = None
+            src_ip = None
+            dst_ip = None
+
+            for cmd in entry.children[1:]:
+                if cmd.data == 'subcommand_field_set':
+                    if cmd.children[0] == 'dst-addr-type':
+                        dst_addr_type = str(cmd.children[1].children[0])
+                    elif cmd.children[0] == 'src-addr-type':
+                        src_addr_type = str(cmd.children[1].children[0])
+                    elif cmd.children[0] == 'src-subnet':
+                        if src_addr_type != "net":
+                            logging.error('line ' + str(cmd.line) + ': Encountered "src-subnet" but "src-addr-type" is not subnet!')
+                        if src_net is None:
+                            if len(cmd.children[1].children) == 2:
+                                # case ip + netmask
+                                src_net = IPv4Network('/'.join(cmd.children[1].children))
+                            else:
+                                # case subnet
+                                src_net = IPv4Network(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dst-subnet':
+                        if dst_addr_type != "net":
+                            logging.error('line ' + str(cmd.line) + ': Encountered "dst-subnet" but "dst-addr-type" is not subnet!')
+                        if dst_net is None:
+                            if len(cmd.children[1].children) == 2:
+                                # case ip + netmask
+                                dst_net = IPv4Network('/'.join(cmd.children[1].children))
+                            else:
+                                # case subnet
+                                dst_net = IPv4Network(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dst-start-ip':
+                        if dst_addr_type != "ip":
+                            logging.error('line ' + str(cmd.line) + ': Encountered "dst-start-ip" but "dst-addr-type" is not ip!')
+                        if dst_ip is None:
+                            dst_ip = IPv4Address(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'src-start-ip':
+                        if src_addr_type != "ip":
+                            logging.error('line ' + str(cmd.line) + ': Encountered "src-start-ip" but "src-addr-type" is: ' + src_addr_type)
+                        if src_ip is None:
+                            src_ip = IPv4Address(cmd.children[1].children[0])
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'phase1name':
+                        if phase1name is None:
+                            phase1name = str(cmd.children[1].children[0]).strip('"')
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'keylifeseconds':
+                        keylife = int(cmd.children[1].children[0])
+                    elif cmd.children[0] == 'proposal':
+                        if len(c_proposal) == 0:
+                            for n in cmd.children[1].children:
+                                e, d = str(n).split('-')
+                                c_proposal.append(FgIpsecCryptoParams(e, d))
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    elif cmd.children[0] == 'dhgrp':
+                        if len(dhgrp) == 0:
+                            for n in cmd.children[1].children:
+                                n_int = int(n)
+                                assert n_int > 0
+                                dhgrp.append(n_int)
+                        else:
+                            raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
+                    else:
+                        if cmd.children[0] != 'replay':
+                            logging.warning(' '.join(
+                                ['line', str(cmd.line) + ': NOT EVALUATED: config vpn ipsec phase2-interface:\n  option:',
+                                 str(cmd.children[0]), '\n  value:',
+                                 str(cmd.children[1:]), '\n  CONTEXT:', str(entry)]))
+                else:
+                    raise RuntimeError("Expected 'set' or 'config' command!")
+
+            if src_addr_type == "net" and src_net is None:
+                src_net = IPv4Network('0.0.0.0/0')
+            if dst_addr_type == "net" and dst_net is None:
+                dst_net = IPv4Network('0.0.0.0/0')
+
+            assert 172800 > keylife > 120
+            if phase1name is None or len(c_proposal) == 0 or len(dhgrp) == 0 \
+              or (src_addr_type != "net" and src_addr_type != "ip") \
+              or (dst_addr_type != "net" and dst_addr_type != "ip") \
+              or (src_addr_type == "ip" and src_ip is None) or (dst_addr_type == "ip" and dst_ip is None):
+                raise RuntimeError('line ' + str(entry.line) + ":Incompletely parsed record")
+
+            fw_data.vpn_ipsec_phase_2.append(FgVpnIpsecPhase2(name, phase1name, c_proposal, dhgrp, keylife,
+                                                              src_addr_type, dst_addr_type, src_net, dst_net,
+                                                              src_ip, dst_ip))
+    else:
+        logging.warning('Could not find section \'config vpn ipsec phase2-interface\'')
+
+    logging.info('Extraction of "config vpn ipsec phase2-interface" finished')
+
+    #######################################################################################
     logging.info('Extraction of "config vpn ipsec phase1-interface" started')
 
     if 'ipsec_phase1' in vpn_raw.keys():
@@ -295,6 +407,8 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
     logging.info('Extraction of "config vpn certificate local" finished')
 
     #######################################################################################
+    logging.info('Extraction of "config vpn certificate ca" started')
+
     if 'certificate_ca' in vpn_raw.keys():
         for entry in vpn_raw['certificate_ca'][1:]:
             name = to_cname(entry.children[0])
