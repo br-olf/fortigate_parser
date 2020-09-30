@@ -123,11 +123,13 @@ def _extraction_stage_1(parsed_conf: Tree):
                 else:
                     logging.error('config "vpn ipsec phase2-interface" should only be present once')
             elif config_branch[1] == 'ipsec' and config_branch[2] == 'forticlient':
+                # Not used!
                 if 'ipsec_forticlient' not in vpn_raw.keys():
                     vpn_raw['ipsec_forticlient'] = config.children
                 else:
                     logging.error('config "vpn ipsec forticlient" should only be present once')
             elif config_branch[1] == 'ssl' and config_branch[2] == 'settings':
+                # Not used
                 if 'ssl_settings' not in vpn_raw.keys():
                     vpn_raw['ssl_settings'] = config.children
                 else:
@@ -143,7 +145,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
 
     fw_data = FgData()
 
-    logging.info('Extraction of "config vpn ipsec phase1-interface" started')
+    logging.info('Extraction of "config vpn ipsec phase2-interface" started')
 
     if 'ipsec_phase2' in vpn_raw.keys():
         for entry in vpn_raw['ipsec_phase2'][1:]:
@@ -226,7 +228,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                         else:
                             raise RuntimeError('line ' + str(cmd.line) + ": Encountered conflicting set command")
                     else:
-                        if cmd.children[0] != 'replay':
+                        if cmd.children[0] != 'replay' and cmd.children[0] != 'keepalive':
                             logging.warning(' '.join(
                                 ['line', str(cmd.line) + ': NOT EVALUATED: config vpn ipsec phase2-interface:\n  option:',
                                  str(cmd.children[0]), '\n  value:',
@@ -1143,6 +1145,7 @@ def _validity_check(fg_data: FgData):
         return False
 
     for p in fg_data.policy:
+        # TODO: fix Tracelog error
         if not find_interface(p.src_interface, fg_data):
             logging.error('src interface', p.src_interface, 'not found in fg_data.interface')
         if not find_interface(p.dst_interface, fg_data):
