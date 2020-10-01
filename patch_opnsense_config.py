@@ -4,7 +4,8 @@ import uuid
 import xml.etree.ElementTree as ET
 from typing import List
 
-from utility_dataclasses import FgData, FgDataSchema, FgNetAlias, FgNetAliasGroup, FgIPAlias
+from utility_dataclasses import FgData, FgDataSchema, FgNetAlias, FgNetAliasGroup, FgIPAlias, \
+    FgVpnIpsecPhase1, FgVpnIpsecPhase2
 
 
 def patch_config(config_xml_file: str, fw_data_json_file: str, output_xml_file: str) -> None:
@@ -76,6 +77,18 @@ def _add_ip_aliases(config_root: ET.Element, ip_alias: List[FgIPAlias]) -> None:
         ET.SubElement(new_alias, 'updatefreq')
         ET.SubElement(new_alias, 'type').text = 'host'
         ET.SubElement(new_alias, 'content').text = fw_ip_alias.ip.exploded
+
+
+def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPhase2]) -> None:
+    for phase2 in ipsec_phase_2:
+        new_phase2 = ET.SubElement(config_root.find('OPNsense').find('ipsec'), 'phase2')
+        ET.SubElement(new_phase2, 'ikeid').text = _find_ikeid(phase2.phase1name)
+        ET.SubElement(new_phase2, 'uniqid').text = uuid.uuid4().hex[:13]
+        ET.SubElement(new_phase2, 'mode').text = 'tunnel'
+        ET.SubElement(new_phase2, 'lifetime').text = str(phase2.keylife)
+        ET.SubElement(new_phase2, 'descr').text = phase2.name
+        ET.SubElement(new_phase2, 'protocol').text = 'esp'
+        # TODO: localid remoteid encryption-algorithm-option hash-algorithm-option
 
 
 if __name__ == '__main__':
