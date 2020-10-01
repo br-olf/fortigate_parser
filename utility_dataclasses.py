@@ -376,8 +376,6 @@ class FgVpnIpsecPhase1Schema(Schema):
     xauthtype = mm_fields.String(allow_none=True)
     authusrgrp = mm_fields.String(allow_none=True)
 
-
-
     @post_load
     def make_object(self, data, **kwargs):
         return FgVpnIpsecPhase1(data['name'], data['comment'], data['interface'], data['dpd'], data['nattraversal'],
@@ -418,7 +416,6 @@ class FgVpnIpsecPhase2Schema(Schema):
         return FgVpnIpsecPhase2(data['name'], data['phase1name'], data['c_proposal'], data['dhgrp'], data['keylife'],
                                 data['src_addr_type'], data['dst_addr_type'], data['src_net'], data['dst_net'],
                                 data['src_ip'], data['dst_ip'])
-
 
 
 @dataclass
