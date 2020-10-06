@@ -79,6 +79,10 @@ def _add_ip_aliases(config_root: ET.Element, ip_alias: List[FgIPAlias]) -> None:
         ET.SubElement(new_alias, 'content').text = fw_ip_alias.ip.exploded
 
 
+def _find_ikeid(phase1name) -> str:
+    # TODO!
+    pass
+
 def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPhase2]) -> None:
     for phase2 in ipsec_phase_2:
         new_phase2 = ET.SubElement(config_root.find('OPNsense').find('ipsec'), 'phase2')
@@ -88,7 +92,45 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
         ET.SubElement(new_phase2, 'lifetime').text = str(phase2.keylife)
         ET.SubElement(new_phase2, 'descr').text = phase2.name
         ET.SubElement(new_phase2, 'protocol').text = 'esp'
-        # TODO: localid remoteid encryption-algorithm-option hash-algorithm-option
+
+        se_localid = ET.SubElement(new_phase2, 'localid')
+        if phase2.src_addr_type == 'ip':
+            ET.SubElement(se_localid, 'type').text = 'address'
+            ET.SubElement(se_localid, 'address').text = phase2.src_ip.exploded
+        elif phase2.src_addr_type == 'net':
+            ET.SubElement(se_localid, 'type').text = 'network'
+            ip = phase2.src_net.with_prefixlen.split('/')
+            assert len(ip) == 2
+            ET.SubElement(se_localid, 'address').text = ip[0]
+            ET.SubElement(se_localid, 'netbits').text = ip[1]
+
+        se_remoteid = ET.SubElement(new_phase2, 'remoteid')
+        if phase2.dst_addr_type == 'ip':
+            ET.SubElement(se_remoteid, 'type').text = 'address'
+            ET.SubElement(se_remoteid, 'address').text = phase2.dst_ip.exploded
+        elif phase2.dst_addr_type == 'net':
+            ET.SubElement(se_remoteid, 'type').text = 'network'
+            ip = phase2.dst_net.with_prefixlen.split('/')
+            assert len(ip) == 2
+            ET.SubElement(se_remoteid, 'address').text = ip[0]
+            ET.SubElement(se_remoteid, 'netbits').text = ip[1]
+
+        for c_prop in phase2.c_proposal:
+            se_enc_alg = ET.SubElement(new_phase2, 'encryption-algorithm-option')
+            enc_str = c_prop.encrypt
+            if enc_str.startswith('aes'):
+                ET.SubElement(se_enc_alg, 'name').text = 'aes'
+                keybits = int(enc_str[3:])
+                ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
+            else:
+                logging.error('Unsupported or insecure encryption algorithm "{}" in "{}" encountered.'.format(enc_str,
+                                                                                   'config vpn ipsec phase2-interface'))
+            if c_prop.digest.startswith('sha'):
+                ET.SubElement(new_phase2, 'hash-algorithm-option').text = 'hmac_{}'.format(c_prop.digest)
+            else:
+                logging.error('Unsupported or insecure digest algorithm "{}" in "{}" encountered.'.format(enc_str,
+                                                                                   'config vpn ipsec phase2-interface'))
+
 
 
 if __name__ == '__main__':
