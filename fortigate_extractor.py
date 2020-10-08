@@ -213,7 +213,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'phase1name':
                         if phase1name is None:
-                            phase1name = str(cmd.children[1].children[0]).strip('"')
+                            phase1name = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'keylifeseconds':
