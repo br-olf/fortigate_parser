@@ -1,4 +1,7 @@
 # A toolkit to migrate from a fortigate firewall to OPNsense
+This toolset is still in development and can't be used _now_. 
+However if you want to help it will be usable faser ;)
+
 
 ## Contents:
 * A LARK parser grammar for the fortigate configuration language
