@@ -79,14 +79,95 @@ def _add_ip_aliases(config_root: ET.Element, ip_alias: List[FgIPAlias]) -> None:
         ET.SubElement(new_alias, 'content').text = fw_ip_alias.ip.exploded
 
 
-def _find_ikeid(phase1name) -> str:
-    # TODO!
-    pass
+def _find_ipsec_phase1_ikeid(config_root: ET.Element, phase1name: str) -> str:
+    try:
+        for phase1 in config_root.find('ipsec').findall('phase1'):
+            try:
+                if phase1.find('descr').text.startswith(phase1name):
+                    return phase1.find('ikeid').text
+            except AttributeError as err:
+                error_str = 'Encountered invalid <phase1> entry in <"config_root" -> ipsec>: {}'.format(err)
+                logging.fatal(error_str)
+                raise RuntimeError(error_str)
+    except AttributeError as err:
+        error_str = 'Could not find <ipsec -> phase1> in "config_root": {}'.format(err)
+        logging.fatal(error_str)
+        raise RuntimeError(error_str)
+
+    error_str = 'Could not find phase1name "{}" in <"config_root" -> ipsec -> phase1>!'.format(phase1name)
+    logging.error(error_str)
+    raise ValueError(error_str)
+
+def _get_next_ipsec_phase1_ikeid(config_root: ET.Element) -> int:
+    max_ikeid = 0
+    try:
+        for phase1 in config_root.find('ipsec').findall('phase1'):
+            ikeid = int(phase1.find('ikeid').text)
+            if ikeid > max_ikeid:
+                max_ikeid = ikeid
+    except AttributeError as err:
+        logging.info('Could not find <ipsec -> phase1> in "config_root": {}'.format(err))
+    return max_ikeid + 1
+
+def _add_ipsec_phase1(config_root: ET.Element, ipsec_phase_1: List[FgVpnIpsecPhase1]) -> None:
+    if config_root.find('ipsec') is None:
+        ET.SubElement(config_root, 'ipsec')
+    for phase1 in ipsec_phase_1:
+        if phase1.remote_gw is None:
+            logging.error('Could not migrate ipsec phase1 configuration "{}"! Missing "remote_gw" in:\n{}'.format(phase1.name, phase1))
+            continue
+        if phase1.xauthtype is not None or phase1.authusrgrp is not None:
+            logging.error(
+                'Could not migrate ipsec phase1 configuration "{}"! XAuth is not possilbe in tunnel configuration!'.format(phase1.name))
+            continue
+        new_phase1 = ET.SubElement(config_root.find('ipsec'), 'phase1')
+        ET.SubElement(new_phase1, 'descr').text = '{} -> {}'.format(phase1.name, phase1.comment)
+        ET.SubElement(new_phase1, 'ikeid').text = str(_get_next_ipsec_phase1_ikeid(config_root))
+        ET.SubElement(new_phase1, 'iketype').text = 'ike'
+        ET.SubElement(new_phase1, 'interface').text = phase1.interface
+        ET.SubElement(new_phase1, 'protocol').text = 'inet'
+        ET.SubElement(new_phase1, 'lifetime').text = str(phase1.keylife)
+        ET.SubElement(new_phase1, 'pre-shared-key').text = phase1.psksecret
+        ET.SubElement(new_phase1, 'private-key')
+        ET.SubElement(new_phase1, 'authentication_method').text = 'pre_shared_key'
+        ET.SubElement(new_phase1, 'dhgroup').text = ','.join([str(x) for x in phase1.dhgrp])
+        ET.SubElement(new_phase1, 'remote-gateway').text = phase1.remote_gw.exploded
+
+        if phase1.dpd:
+            ET.SubElement(new_phase1, 'dpd_maxfail').text = '3'
+            ET.SubElement(new_phase1, 'dpd_delay').text = '5'
+            ET.SubElement(new_phase1, 'dpd_action').text = 'restart'
+
+        if phase1.nattraversal:
+            ET.SubElement(new_phase1, 'nat_traversal').text = 'on'
+        else:
+            ET.SubElement(new_phase1, 'nat_traversal').text = 'off'
+
+        for c_prop in phase1.c_proposal:
+            se_enc_alg = ET.SubElement(new_phase1, 'encryption-algorithm')
+            enc_str = c_prop.encrypt
+            if enc_str.startswith('aes'):
+                ET.SubElement(se_enc_alg, 'name').text = 'aes'
+                keybits = int(enc_str[3:])
+                ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
+            else:
+                logging.error('Unsupported or insecure encryption algorithm "{}" in "{}" encountered.'.format(enc_str,
+                                                                                   'config vpn ipsec phase1-interface'))
+            if c_prop.digest.startswith('sha'):
+                ET.SubElement(new_phase1, 'hash-algorithm').text = c_prop.digest
+            else:
+                logging.error('Unsupported or insecure digest algorithm "{}" in "{}" encountered.'.format(enc_str,
+                                                                                   'config vpn ipsec phase1-interface'))
 
 def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPhase2]) -> None:
     for phase2 in ipsec_phase_2:
-        new_phase2 = ET.SubElement(config_root.find('OPNsense').find('ipsec'), 'phase2')
-        ET.SubElement(new_phase2, 'ikeid').text = _find_ikeid(phase2.phase1name)
+        try:
+            ikeid = _find_ipsec_phase1_ikeid(config_root, phase2.phase1name)
+        except ValueError:
+            logging.error('Could not create configuration for ipsec phase2 "{}"! Matching phase1 entry is missing.'.format(phase2.name))
+            continue
+        new_phase2 = ET.SubElement(config_root.find('ipsec'), 'phase2')
+        ET.SubElement(new_phase2, 'ikeid').text = ikeid
         ET.SubElement(new_phase2, 'uniqid').text = uuid.uuid4().hex[:13]
         ET.SubElement(new_phase2, 'mode').text = 'tunnel'
         ET.SubElement(new_phase2, 'lifetime').text = str(phase2.keylife)
@@ -136,7 +217,7 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
-    config_xml_file = 'config-site-2-opnsense-1.localdomain.xml'
+    config_xml_file = 'config-site-1-opnsense-1.localdomain.xml'
     fw_data_json_file = "FwData.json"
     output_xml_file = 'config_test.xml'
 
@@ -148,6 +229,8 @@ if __name__ == '__main__':
     _add_net_aliases(config_root, fw_data.net_alias)
     _add_group_aliases(config_root, fw_data.net_alias_group)
     _add_ip_aliases(config_root, fw_data.ip_alias)
+    _add_ipsec_phase1(config_root, fw_data.vpn_ipsec_phase_1)
+    _add_ipsec_phase2(config_root, fw_data.vpn_ipsec_phase_2)
 
     # for policy in
     # new_rule = ET.SubElement(config_root.find('filter'), 'rule')
