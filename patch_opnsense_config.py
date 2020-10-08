@@ -49,6 +49,10 @@ def _add_net_aliases(config_root: ET.Element, net_alias: List[FgNetAlias]) -> No
         elif fw_alias.net_list is not None and len(fw_alias.net_list) > 0:
             ET.SubElement(new_alias, 'type').text = 'network'
             ET.SubElement(new_alias, 'content').text = '\n'.join([x.exploded for x in fw_alias.net_list])
+        else:
+            error_str = 'Nighter FgNetAlias.fqdn nor FgNetAlias.net_list are set in alias "{}".'.format(fw_alias.name)
+            logging.fatal(error_str)
+            raise ValueError(error_str)
 
 
 def _add_group_aliases(config_root: ET.Element, net_alias_group: List[FgNetAliasGroup]) -> None:
@@ -112,17 +116,17 @@ def _get_next_ipsec_phase1_ikeid(config_root: ET.Element) -> int:
 def _add_ipsec_phase1(config_root: ET.Element, ipsec_phase_1: List[FgVpnIpsecPhase1]) -> None:
     if config_root.find('ipsec') is None:
         ET.SubElement(config_root, 'ipsec')
+
     for phase1 in ipsec_phase_1:
-        if phase1.remote_gw is None:
-            logging.error('Could not migrate ipsec phase1 configuration "{}"! Missing "remote_gw" in:\n{}'.format(phase1.name, phase1))
-            continue
-        if phase1.xauthtype is not None or phase1.authusrgrp is not None:
+        if phase1.xauthtype is not None or phase1.authusrgrp is not None or phase1.remote_gw is None:
             logging.error(
-                'Could not migrate ipsec phase1 configuration "{}"! XAuth is not possilbe in tunnel configuration!'.format(phase1.name))
+                'Could not migrate ipsec phase1 configuration "{}"! Automatic XAuth migration is not possible!'.format(phase1.name))
             continue
+
+        ikeid = str(_get_next_ipsec_phase1_ikeid(config_root))  # Do this before creating new node to suppress errors
         new_phase1 = ET.SubElement(config_root.find('ipsec'), 'phase1')
         ET.SubElement(new_phase1, 'descr').text = '{} -> {}'.format(phase1.name, phase1.comment)
-        ET.SubElement(new_phase1, 'ikeid').text = str(_get_next_ipsec_phase1_ikeid(config_root))
+        ET.SubElement(new_phase1, 'ikeid').text = ikeid
         ET.SubElement(new_phase1, 'iketype').text = 'ike'
         ET.SubElement(new_phase1, 'interface').text = phase1.interface
         ET.SubElement(new_phase1, 'protocol').text = 'inet'
@@ -132,32 +136,64 @@ def _add_ipsec_phase1(config_root: ET.Element, ipsec_phase_1: List[FgVpnIpsecPha
         ET.SubElement(new_phase1, 'authentication_method').text = 'pre_shared_key'
         ET.SubElement(new_phase1, 'dhgroup').text = ','.join([str(x) for x in phase1.dhgrp])
         ET.SubElement(new_phase1, 'remote-gateway').text = phase1.remote_gw.exploded
+        ET.SubElement(new_phase1, 'nat_traversal').text = 'on' if phase1.nattraversal else 'off'
+
+        if phase1.connect_type == 'static':
+            pass  # this is the default
+        elif phase1.connect_type == 'dynamic':  # allow gateway to be on a dynamic IP
+            ET.SubElement(new_phase1, 'rightallowany').text = 1
+        else:
+            error_str = 'Encountered an unexpected FgVpnIpsecPhase1.connect_type: {}'.format(phase1.connect_type)
+            logging.error(error_str)
+            raise NotImplementedError(error_str)
 
         if phase1.dpd:
             ET.SubElement(new_phase1, 'dpd_maxfail').text = '3'
             ET.SubElement(new_phase1, 'dpd_delay').text = '5'
             ET.SubElement(new_phase1, 'dpd_action').text = 'restart'
 
-        if phase1.nattraversal:
-            ET.SubElement(new_phase1, 'nat_traversal').text = 'on'
-        else:
-            ET.SubElement(new_phase1, 'nat_traversal').text = 'off'
-
+        enc_str = None
         for c_prop in phase1.c_proposal:
             se_enc_alg = ET.SubElement(new_phase1, 'encryption-algorithm')
-            enc_str = c_prop.encrypt
-            if enc_str.startswith('aes'):
-                ET.SubElement(se_enc_alg, 'name').text = 'aes'
-                keybits = int(enc_str[3:])
-                ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
+            skip_enc_alg = False
+
+            if enc_str is None:
+                enc_str = c_prop.encrypt
+            elif enc_str != c_prop.encrypt:
+                error_str = 'OPNsense ipsec phase1 configuration only allows one encryption algorithm specification! '
+                error_str += 'Already configured "{}" conflicts "{}".\n   SKIPPED: '.format(enc_str, c_prop.encrypt)
+                error_str += '"{}" remains the only possible encryption algorithm for FgVpnIpsecPhase1 "{}"'.format(enc_str, phase1.name)
+                logging.error(error_str)
+                skip_enc_alg = True
+
+            if not skip_enc_alg:
+                if enc_str.startswith('aes'):
+                    ET.SubElement(se_enc_alg, 'name').text = 'aes'
+                    keybits = int(enc_str[3:])
+                    ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
+                elif enc_str == '3des':
+                    logging.warning('Insecure encryption algorithm "{}" in FgVpnIpsecPhase1 "{}" encountered.'.format(enc_str, phase1.name))
+                    ET.SubElement(se_enc_alg, 'name').text = '3des'
+                else:
+                    error_str = 'Unsupported or insecure encryption algorithm "{}" in FgVpnIpsecPhase1 "{}" encountered.'.format(enc_str, phase1.name)
+                    logging.fatal(error_str)
+                    raise NotImplementedError(error_str)
+
+            if new_phase1.find('hash-algorithm') is None:
+                hash_alg_str = ''
             else:
-                logging.error('Unsupported or insecure encryption algorithm "{}" in "{}" encountered.'.format(enc_str,
-                                                                                   'config vpn ipsec phase1-interface'))
+                hash_alg_str = new_phase1.find('hash-algorithm').text + ','
+
             if c_prop.digest.startswith('sha'):
-                ET.SubElement(new_phase1, 'hash-algorithm').text = c_prop.digest
+                ET.SubElement(new_phase1, 'hash-algorithm').text = hash_alg_str + c_prop.digest
+            elif c_prop.digest == 'md5':
+                logging.warning('Insecure digest algorithm "{}" in FgVpnIpsecPhase1 "{}" encountered.'.format(c_prop.digest, phase1.name))
+                ET.SubElement(new_phase1, 'hash-algorithm').text = hash_alg_str + c_prop.digest
             else:
-                logging.error('Unsupported or insecure digest algorithm "{}" in "{}" encountered.'.format(enc_str,
-                                                                                   'config vpn ipsec phase1-interface'))
+                error_str = 'Unsupported or insecure digest algorithm "{}" in FgVpnIpsecPhase1 "{}" encountered.'.format(c_prop.digest, phase1.name)
+                logging.fatal(error_str)
+                raise NotImplementedError(error_str)
+
 
 def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPhase2]) -> None:
     for phase2 in ipsec_phase_2:
@@ -184,6 +220,10 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
             assert len(ip) == 2
             ET.SubElement(se_localid, 'address').text = ip[0]
             ET.SubElement(se_localid, 'netbits').text = ip[1]
+        else:
+            error_str = 'Encountered unexpected FgVpnIpsecPhase2.src_addr_type value: {}'.format(phase2.dst_addr_type)
+            logging.fatal(error_str)
+            raise NotImplementedError(error_str)
 
         se_remoteid = ET.SubElement(new_phase2, 'remoteid')
         if phase2.dst_addr_type == 'ip':
@@ -195,22 +235,47 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
             assert len(ip) == 2
             ET.SubElement(se_remoteid, 'address').text = ip[0]
             ET.SubElement(se_remoteid, 'netbits').text = ip[1]
+        else:
+            error_str = 'Encountered unexpected FgVpnIpsecPhase2.dst_addr_type value: {}'.format(phase2.dst_addr_type)
+            logging.fatal(error_str)
+            raise NotImplementedError(error_str)
 
         for c_prop in phase2.c_proposal:
-            se_enc_alg = ET.SubElement(new_phase2, 'encryption-algorithm-option')
-            enc_str = c_prop.encrypt
-            if enc_str.startswith('aes'):
-                ET.SubElement(se_enc_alg, 'name').text = 'aes'
-                keybits = int(enc_str[3:])
-                ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
-            else:
-                logging.error('Unsupported or insecure encryption algorithm "{}" in "{}" encountered.'.format(enc_str,
-                                                                                   'config vpn ipsec phase2-interface'))
-            if c_prop.digest.startswith('sha'):
-                ET.SubElement(new_phase2, 'hash-algorithm-option').text = 'hmac_{}'.format(c_prop.digest)
-            else:
-                logging.error('Unsupported or insecure digest algorithm "{}" in "{}" encountered.'.format(enc_str,
-                                                                                   'config vpn ipsec phase2-interface'))
+
+            skip_enc_alg = False
+            for c in new_phase2.findall('encryption-algorithm-option'):
+                if (c.find('name').text == '3des' and c_prop.encrypt == '3des') or \
+                   (c.find('name').text == 'aes' and c_prop.encrypt.startswith('aes') and c.find('keylen').text == c_prop.encrypt[3:]):
+                    skip_enc_alg = True
+            if not skip_enc_alg:
+                se_enc_alg = ET.SubElement(new_phase2, 'encryption-algorithm-option')
+                enc_str = c_prop.encrypt
+                if enc_str.startswith('aes'):
+                    ET.SubElement(se_enc_alg, 'name').text = 'aes'
+                    keybits = int(enc_str[3:])
+                    ET.SubElement(se_enc_alg, 'keylen').text = str(keybits)
+                elif enc_str == '3des':
+                    logging.warning('Insecure encryption algorithm "{}" in FgVpnIpsecPhase2 "{}" encountered.'.format(enc_str, phase2.name))
+                    ET.SubElement(se_enc_alg, 'name').text = '3des'
+                else:
+                    error_str = 'Unsupported or insecure encryption algorithm "{}" in FgVpnIpsecPhase2 "{}" encountered.'.format(enc_str, phase2.name)
+                    logging.fatal(error_str)
+                    raise NotImplementedError(error_str)
+
+            skip_digest = False
+            for h in new_phase2.findall('hash-algorithm-option'):
+                if h.text == 'hmac_{}'.format(c_prop.digest):  # Skipps duplicates
+                    skip_digest = True
+            if not skip_digest:
+                if c_prop.digest.startswith('sha'):
+                    ET.SubElement(new_phase2, 'hash-algorithm-option').text = 'hmac_{}'.format(c_prop.digest)
+                elif c_prop.digest == 'md5':
+                    logging.warning('Insecure digest algorithm "{}" in FgVpnIpsecPhase2 "{}" encountered.'.format(c_prop.digest, phase2.name))
+                    ET.SubElement(new_phase2, 'hash-algorithm-option').text = 'hmac_{}'.format(c_prop.digest)
+                else:
+                    error_str = 'Unsupported or insecure digest algorithm "{}" in FgVpnIpsecPhase2 "{}" encountered.'.format(c_prop.digest, phase2.name)
+                    logging.fatal(error_str)
+                    raise NotImplementedError(error_str)
 
 
 
