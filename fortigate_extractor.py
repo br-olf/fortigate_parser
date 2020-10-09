@@ -1240,6 +1240,11 @@ def _validity_check(fg_data: FgData):
             logging.error(
                 'IPsec Phase 1 "{}": interface "{}" not found in fg_data.interface'.format(p1.name, p1.interface))
 
+    for d in fg_data.dhcp_server:
+        if not find_interface(d.interface, fg_data):
+            logging.error(
+                'DHCP Server for "{}": interface "{}" not found in fg_data.interface'.format(d.domain, d.interface))
+
     logging.info('Consistency check of policy data finished.')
 
 
