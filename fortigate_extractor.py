@@ -289,10 +289,10 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comments':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'interface':
                         if interface is None:
-                            interface = str(cmd.children[1].children[0]).strip('"')
+                            interface = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'psksecret':
@@ -393,7 +393,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comments':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'certificate':
                         if cert is None:
                             cert = str(cmd.children[1].children[0]).strip('"')
@@ -487,7 +487,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             # case subnet
                             ip.append(IPv4Network(cmd.children[1].children[0]))
                     elif cmd.children[0] == 'comment':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'start-ip':
                         if ip_s is None:
                             ip_s = IPv4Address(cmd.children[1].children[0])
@@ -524,7 +524,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                         entry.line, currently_parsing, entry))
                 continue
 
-            fw_data.net_alias.append(FgNetAlias(str(name), str(comment), ip, fqdn))
+            fw_data.net_alias.append(FgNetAlias(name, comment, ip, fqdn))
     else:
         logging.critical('Could not find critical important section {}!'.format(currently_parsing))
 
@@ -541,7 +541,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comment':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'member':
                         for addr_key in cmd.children[1].children:
                             address_keys.append(to_cname(addr_key))
@@ -559,7 +559,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                     raise RuntimeError('line {}: Expected "set" command!'.format(cmd.line))
             if not address_keys:
                 raise RuntimeError('line {}: Incompletely parsed record'.format(entry.line))
-            fw_data.net_alias_group.append(FgNetAliasGroup(str(name), str(comment), address_keys))
+            fw_data.net_alias_group.append(FgNetAliasGroup(name, comment, address_keys))
     else:
         logging.critical('Could not find critical important section {}!'.format(currently_parsing))
 
@@ -577,7 +577,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
             for cmd in entry.children[1:]:
                 if cmd.data == 'subcommand_field_set':
                     if cmd.children[0] == 'comments':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'startip':
                         if ip_s is None:
                             ip_s = IPv4Address(cmd.children[1].children[0])
@@ -605,7 +605,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                     raise RuntimeError('line {}: Expected "set" command!'.format(cmd.line))
             if ip is None:
                 raise RuntimeError('line {}: Incompletely parsed record'.format(entry.line))
-            fw_data.ip_alias.append(FgIPAlias(str(name), str(comment), ip))
+            fw_data.ip_alias.append(FgIPAlias(name, comment, ip))
     else:
         logging.warning('Could not find section {}.'.format(currently_parsing))
 
@@ -641,7 +641,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             skip = True
                             break
                     elif cmd.children[0] == 'comments':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'srcintf':
                         if src_interface is None:
                             src_interface = to_cname(cmd.children[1].children[0])
@@ -695,7 +695,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'global-label':
                         if label is None:
-                            label = str(cmd.children[1].children[0])
+                            label = str(cmd.children[1].children[0]).strip('\'" \t')
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'logtraffic':
@@ -819,8 +819,8 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                 raise RuntimeError('line {}: Unexpected type of command'.format(entry.line))
             if entry.children[1].children[0] != 'comment':
                 raise RuntimeError('line {}: Unexpected set target'.format(entry.line))
-            comment = str(entry.children[1].children[1].children[0]).strip('"')
-            fw_data.service_category.append(FgServiceCategory(str(name), str(comment), []))
+            comment = str(entry.children[1].children[1].children[0]).strip('\'" \t')
+            fw_data.service_category.append(FgServiceCategory(name, comment, []))
     else:
         logging.critical('Could not find critical important section {}!'.format(currently_parsing))
 
@@ -856,7 +856,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'comment':
-                        comment = str(cmd.children[1].children[0]).strip('"')
+                        comment = str(cmd.children[1].children[0]).strip('\'" \t')
                     elif cmd.children[0] == 'protocol':
                         if protocol is None:
                             protocol = str(cmd.children[1].children[0])
@@ -877,9 +877,9 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             tmp = str(cmd.children[1].children[0]).split(':')
                             assert 0 < len(tmp) <= 2
                             if len(tmp) == 2 and tmp[1] != '0' and tmp[1] != '0-65535':
-                                logging.error(' '.join(
-                                    ["Unexpected port-range; skipped 'config firewall service custom':\n  CONTEXT:",
-                                     str(entry)]))
+                                logging.error(
+                                    "Unexpected port-range; skipped 'config firewall service custom':\n  CONTEXT: {}".format(
+                                        entry))
                                 skip = True
                                 break
                             else:
@@ -896,8 +896,8 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             tmp = str(cmd.children[1].children[0]).split(':')
                             assert 0 < len(tmp) <= 2
                             if len(tmp) == 2 and (tmp[1] != '0' or tmp[1] != '0-65535'):
-                                logging.error(' '.join(
-                                    ["Skipped unexpected 'config firewall service custom':\n  CONTEXT:", str(entry)]))
+                                logging.error(
+                                    "Skipped unexpected 'config firewall service custom':\n  CONTEXT: {}".format(entry))
                                 skip = True
                                 break
                             else:
@@ -938,7 +938,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
             members = []
             for cmd in entry.children[1:]:
                 if cmd.children[0] == 'comment':
-                    comment = str(cmd.children[1].children[0]).strip('"')
+                    comment = str(cmd.children[1].children[0]).strip('\'" \t')
                 elif cmd.children[0] == 'member':
                     if not members:
                         for val in cmd.children[1].children:
@@ -995,7 +995,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'interface':
                         if interface is None:
-                            interface = str(cmd.children[1].children[0])
+                            interface = to_cname(cmd.children[1].children[0])
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif re_dns_server.match(cmd.children[0]):
@@ -1109,7 +1109,7 @@ def _extraction_stage_2(firewall_raw: dict, system_raw: dict, vpn_raw: dict) -> 
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'dhcp-relay-ip':
                         if dhcp_relay is None:
-                            dhcp_relay = IPv4Address(str(cmd.children[1].children[0]).strip('\'"'))
+                            dhcp_relay = IPv4Address(str(cmd.children[1].children[0]).strip('\'" \t'))
                         else:
                             raise RuntimeError('line {}: Encountered conflicting set command.'.format(cmd.line))
                     elif cmd.children[0] == 'status':
@@ -1219,19 +1219,26 @@ def _validity_check(fg_data: FgData):
 
     for p in fg_data.policy:
         if not find_interface(p.src_interface, fg_data):
-            logging.error('src interface "{}" not found in fg_data.interface'.format(p.src_interface))
+            logging.error('Firewall Policy "{}": src interface "{}" not found in fg_data.interface'.format(p.label,
+                                                                                                           p.src_interface))
         if not find_interface(p.dst_interface, fg_data):
-            logging.error('dst interface "{}" not found in fg_data.interface'.format(p.dst_interface))
+            logging.error('Firewall Policy"{}": dst interface "{}" not found in fg_data.interface'.format(p.label,
+                                                                                                          p.dst_interface))
         for a in p.src_alias_list:
             if not find_alias(a, fg_data):
                 logging.error(
-                    'src address alias (srcaddr) "{}" not found in fg_data.net_alias or fg_data.net_alias_group'.format(
-                        a))
+                    'Firewall Policy "{}": src address alias (srcaddr) "{}" not found in fg_data.net_alias or fg_data.net_alias_group'.format(
+                        p.label, a))
         for a in p.dst_alias_list:
             if not find_alias(a, fg_data):
                 logging.error(
-                    'dst address alias (dstaddr) "{}" not found in fg_data.net_alias or fg_data.net_alias_group'.format(
-                        a))
+                    'Firewall Policy "{}": dst address alias (dstaddr) "{}" not found in fg_data.net_alias or fg_data.net_alias_group'.format(
+                        p.label, a))
+
+    for p1 in fg_data.vpn_ipsec_phase_1:
+        if not find_interface(p1.interface, fg_data):
+            logging.error(
+                'IPsec Phase 1 "{}": interface "{}" not found in fg_data.interface'.format(p1.name, p1.interface))
 
     logging.info('Consistency check of policy data finished.')
 
