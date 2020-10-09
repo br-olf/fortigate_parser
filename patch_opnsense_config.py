@@ -1,11 +1,12 @@
 import logging
 import time
 import uuid
+import base64
 import xml.etree.ElementTree as ET
 from typing import List
 
 from utility_dataclasses import FgData, FgDataSchema, FgNetAlias, FgNetAliasGroup, FgIPAlias, \
-    FgVpnIpsecPhase1, FgVpnIpsecPhase2
+    FgVpnIpsecPhase1, FgVpnIpsecPhase2, FgVpnCertCa
 
 
 def patch_config(config_xml_file: str, fw_data_json_file: str, output_xml_file: str) -> None:
@@ -247,6 +248,7 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
                 if (c.find('name').text == '3des' and c_prop.encrypt == '3des') or \
                    (c.find('name').text == 'aes' and c_prop.encrypt.startswith('aes') and c.find('keylen').text == c_prop.encrypt[3:]):
                     skip_enc_alg = True
+                    break
             if not skip_enc_alg:
                 se_enc_alg = ET.SubElement(new_phase2, 'encryption-algorithm-option')
                 enc_str = c_prop.encrypt
@@ -266,6 +268,7 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
             for h in new_phase2.findall('hash-algorithm-option'):
                 if h.text == 'hmac_{}'.format(c_prop.digest):  # Skipps duplicates
                     skip_digest = True
+                    break
             if not skip_digest:
                 if c_prop.digest.startswith('sha'):
                     ET.SubElement(new_phase2, 'hash-algorithm-option').text = 'hmac_{}'.format(c_prop.digest)
@@ -277,6 +280,21 @@ def _add_ipsec_phase2(config_root: ET.Element, ipsec_phase_2: List[FgVpnIpsecPha
                     logging.fatal(error_str)
                     raise NotImplementedError(error_str)
 
+
+def _add_ca_certs(config_root: ET.Element, vpn_cert_ca: List[FgVpnCertCa]) -> None:
+    for ca in vpn_cert_ca:
+        skip_cert = False
+        for c in config_root.findall('ca'):
+            if c.find('descr').text == ca.name:
+                skip_cert = True
+                break
+        if not skip_cert:
+            new_ca = ET.SubElement(config_root, 'ca')
+            ET.SubElement(new_ca, 'refid').text = uuid.uuid4().hex[:13]
+            ET.SubElement(new_ca, 'descr').text = ca.name
+            ET.SubElement(new_ca, 'serial').text = '0'
+            ET.SubElement(new_ca, 'crt').text = base64.b64encode(ca.cert.encode('utf-8')).decode('utf-8')
+            # ET.SubElement(new_ca, 'crt').text
 
 
 if __name__ == '__main__':
@@ -296,6 +314,7 @@ if __name__ == '__main__':
     _add_ip_aliases(config_root, fw_data.ip_alias)
     _add_ipsec_phase1(config_root, fw_data.vpn_ipsec_phase_1)
     _add_ipsec_phase2(config_root, fw_data.vpn_ipsec_phase_2)
+    _add_ca_certs(config_root, fw_data.vpn_cert_ca)
 
     # for policy in
     # new_rule = ET.SubElement(config_root.find('filter'), 'rule')
