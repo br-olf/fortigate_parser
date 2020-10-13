@@ -4,9 +4,13 @@ import uuid
 import base64
 import xml.etree.ElementTree as ET
 from typing import List
+from cryptography.hazmat.primitives import serialization
+
 
 from utility_dataclasses import FgData, FgDataSchema, FgNetAlias, FgNetAliasGroup, FgIPAlias, \
-    FgVpnIpsecPhase1, FgVpnIpsecPhase2, FgVpnCertCa
+    FgVpnIpsecPhase1, FgVpnIpsecPhase2, FgVpnCertCa, FgVpnCertLocal
+
+DEVELOPER_MODE_SKIPPS = True
 
 
 def patch_config(config_xml_file: str, fw_data_json_file: str, output_xml_file: str) -> None:
@@ -297,6 +301,41 @@ def _add_ca_certs(config_root: ET.Element, vpn_cert_ca: List[FgVpnCertCa]) -> No
             # ET.SubElement(new_ca, 'crt').text
 
 
+def _add_local_certs(config_root: ET.Element, vpn_cert_local: List[FgVpnCertLocal]) -> None:
+    for crt in vpn_cert_local:
+        skip_cert = False
+        for c in config_root.findall('cert'):
+            if c.find('descr').text == crt.name:
+                skip_cert = True
+                break
+        if not skip_cert:
+            new_crt = ET.SubElement(config_root, 'cert')
+            ET.SubElement(new_crt, 'refid').text = uuid.uuid4().hex[:13]
+            ET.SubElement(new_crt, 'descr').text = crt.name
+            ET.SubElement(new_crt, 'crt').text = base64.b64encode(crt.cert.encode('utf-8')).decode('utf-8')
+            # Decrypt the private key
+            try:
+                pk = serialization.load_pem_private_key(crt.private_key.encode('utf-8'), password=crt.password.encode('utf-8'))
+            except ValueError as err:
+                error_str = 'Could not load private key of certificate "{}" because of "{}".'.format(crt.name, err)
+                logging.fatal(error_str)
+                if 'DEVELOPER_MODE_SKIPPS' in globals():
+                    from cryptography import x509
+                    from cryptography.hazmat.primitives.asymmetric import rsa
+                    key_size = x509.load_pem_x509_certificate(crt.cert.encode('utf-8')).public_key().key_size
+                    crt_dummy = rsa.generate_private_key(public_exponent=65537, key_size=key_size).private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption()).decode('utf-8')
+                    pk = serialization.load_pem_private_key(crt_dummy.encode('utf-8'), password=None)
+                    logging.fatal(' --> Ignored because DEVELOPER_MODE_SKIPPS: used random key material to replace missing private key!\n   >> THIS WILL RESULT IN BROKEN CERTIFICATES! <<')
+                else:
+                    raise ValueError(error_str)
+            decrypted_priv_pem = pk.private_bytes(encoding=serialization.Encoding.PEM,
+                                                  format=serialization.PrivateFormat.PKCS8,
+                                                  encryption_algorithm=serialization.NoEncryption()).decode('utf-8')
+            ET.SubElement(new_crt, 'prv').text = base64.b64encode(decrypted_priv_pem.encode('utf-8')).decode('utf-8')
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
 
@@ -315,6 +354,7 @@ if __name__ == '__main__':
     _add_ipsec_phase1(config_root, fw_data.vpn_ipsec_phase_1)
     _add_ipsec_phase2(config_root, fw_data.vpn_ipsec_phase_2)
     _add_ca_certs(config_root, fw_data.vpn_cert_ca)
+    _add_local_certs(config_root, fw_data.vpn_cert_local)
 
     # for policy in
     # new_rule = ET.SubElement(config_root.find('filter'), 'rule')
